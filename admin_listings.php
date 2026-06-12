@@ -20,6 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('Listing restored and live.');
             break;
         case 'delete':
+            delete_listing_images($id);
             delete_listing_image($l['image']);
             db()->prepare("DELETE FROM listings WHERE id = ?")->execute([$id]);
             flash('Listing deleted permanently.');

@@ -31,9 +31,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash("{$target['name']} reactivated.");
             break;
         case 'delete':
-            $imgs = db()->prepare("SELECT image FROM listings WHERE owner_id = ?");
+            $imgs = db()->prepare("SELECT id, image FROM listings WHERE owner_id = ?");
             $imgs->execute([$id]);
-            foreach ($imgs->fetchAll() as $row) delete_listing_image($row['image']);
+            foreach ($imgs->fetchAll() as $row) {
+                delete_listing_images((int) $row['id']);
+                delete_listing_image($row['image']);
+            }
             db()->prepare("DELETE FROM users WHERE id = ?")->execute([$id]); // cascades to listings & swipes
             flash("{$target['name']} deleted along with their listings and swipes.");
             break;

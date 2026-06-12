@@ -83,6 +83,12 @@ function swipe_upsert(int $tenantId, int $listingId, string $direction): void {
 
 function migrate(PDO $pdo): void {
     foreach (schema_statements(DB_DRIVER) as $sql) $pdo->exec($sql);
+    // upgrade older installs: images gains listing_id + sort
+    foreach (["ALTER TABLE images ADD COLUMN listing_id INTEGER",
+              "ALTER TABLE images ADD COLUMN sort INTEGER NOT NULL DEFAULT 0",
+              "ALTER TABLE listings ADD COLUMN listing_type VARCHAR(6) NOT NULL DEFAULT 'rent'"] as $alter) {
+        try { $pdo->exec($alter); } catch (Throwable $e) { /* column already exists */ }
+    }
 }
 
 /** Full schema for either driver. Also used by setup.php and to generate
@@ -118,6 +124,7 @@ function schema_statements(string $driver): array {
             city $vc NOT NULL,
             address $vc DEFAULT '',
             price INTEGER NOT NULL,
+            listing_type VARCHAR(6) NOT NULL DEFAULT 'rent',
             room_type $vc NOT NULL,
             property_type $vc NOT NULL,
             furnishing $vc NOT NULL,
@@ -149,6 +156,8 @@ function schema_statements(string $driver): array {
         $opt",
         "CREATE TABLE IF NOT EXISTS images (
             id $id,
+            listing_id INTEGER,
+            sort INTEGER NOT NULL DEFAULT 0,
             mime VARCHAR(30) NOT NULL,
             data $blob NOT NULL,
             created_at $dt NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -183,6 +192,20 @@ function seed(PDO $pdo): void {
     foreach ($rooms as $r) {
         $r[11] = 'assets/img/' . $r[11];
         $li->execute($r);
+    }
+
+    $sales = [
+        [2,'Renovated 3R2B condo, Cheras','Cheras','Kuala Lumpur',438000,'Whole Unit','Condominium','Partially furnished','Any','Pool,Gym,Security,Parking,Near MRT','Freehold 1,012 sqft, new kitchen cabinets, 2 covered car parks.','seed1.svg'],
+        [3,'Corner-lot double storey, Setia Alam','Setia Alam','Selangor',795000,'Whole Unit','Double Storey House','Unfurnished','Any','Garden,Parking,Gated guarded','22x75 corner with extra land, move-in condition.','seed7.svg'],
+        [2,'Compact studio, KLCC fringe (investor unit)','Kampung Baru','Kuala Lumpur',365000,'Studio','Serviced Residence','Fully furnished','Any','Pool,Gym,Near LRT,Airbnb friendly','Tenanted at RM1.9k/mo, 5.9% gross yield, walk to LRT.','seed8.svg'],
+        [3,'Family apartment, Wangsa Maju','Wangsa Maju','Kuala Lumpur',420000,'Whole Unit','Apartment','Partially furnished','Any','Near LRT,Security,Playground','3 rooms 2 baths, 950 sqft, near AEON Big and LRT.','seed9.svg'],
+    ];
+    $ls = $pdo->prepare("INSERT INTO listings
+        (owner_id,title,area,city,price,listing_type,room_type,property_type,furnishing,gender_pref,amenities,description,image)
+        VALUES (?,?,?,?,?,'sale',?,?,?,?,?,?,?)");
+    foreach ($sales as $r) {
+        $r[11] = 'assets/img/' . $r[11];
+        $ls->execute($r);
     }
 }
 
@@ -223,7 +246,7 @@ function current_user(): ?array {
 
 function require_login(): array {
     $u = current_user();
-    if (!$u) { flash('Please sign in first.', 'warn'); redirect('login.php'); }
+    if (!$u) { flash('Please sign in first.', 'warn'); redirect('index.php?m=login'); }
     return $u;
 }
 
@@ -281,8 +304,8 @@ function page_top(string $title, ?array $u = null): void {
       <span class="nav-user"><?= e($u['name']) ?> · <em><?= e($u['role']) ?></em></span>
       <a href="logout.php">Log out</a>
   <?php else: ?>
-      <a href="login.php">Sign in</a>
-      <a href="register.php" class="nav-cta">Create account</a>
+      <a href="index.php?m=login">Sign in</a>
+      <a href="index.php?m=register" class="nav-cta">Create account</a>
   <?php endif; ?>
   </nav>
 </header>
@@ -315,29 +338,80 @@ function page_bottom(): void {
  *   - 'assets/img/...svg' -> a bundled seed image (file on disk).
  */
 
-function handle_image_upload(string $field): ?string {
-    if (empty($_FILES[$field]['name'])) return null;
-    $f = $_FILES[$field];
-    if ($f['error'] !== UPLOAD_ERR_OK) throw new RuntimeException('Upload failed (error ' . $f['error'] . ').');
-    if ($f['size'] > 3 * 1024 * 1024) throw new RuntimeException('Image must be 3 MB or smaller.');
-    $info = @getimagesize($f['tmp_name']);
-    $mime = $info['mime'] ?? '';
-    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
-        throw new RuntimeException('Only JPG, PNG or WebP images are accepted.');
+/** Store every file in a multi-file input against a listing.
+ *  Returns how many photos were saved. Max 6 photos per listing. */
+function handle_images_upload(string $field, int $listingId): int {
+    if (empty($_FILES[$field]['name'][0])) return 0;
+    $files = $_FILES[$field];
+    $st = db()->prepare("SELECT COUNT(*) FROM images WHERE listing_id = ?");
+    $st->execute([$listingId]);
+    $existing = (int) $st->fetchColumn();
+    $sortSt = db()->prepare("SELECT COALESCE(MAX(sort), -1) FROM images WHERE listing_id = ?");
+    $sortSt->execute([$listingId]);
+    $sort = (int) $sortSt->fetchColumn();
+    $saved = 0;
+    $n = count($files['name']);
+    for ($i = 0; $i < $n; $i++) {
+        if ($files['error'][$i] !== UPLOAD_ERR_OK) continue;
+        if ($existing + $saved >= 6) throw new RuntimeException('Maximum 6 photos per listing.');
+        if ($files['size'][$i] > 3 * 1024 * 1024) throw new RuntimeException('Each image must be 3 MB or smaller.');
+        $info = @getimagesize($files['tmp_name'][$i]);
+        $mime = $info['mime'] ?? '';
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            throw new RuntimeException('Only JPG, PNG or WebP images are accepted.');
+        }
+        $sort++;
+        $ins = db()->prepare("INSERT INTO images (listing_id, sort, mime, data, created_at) VALUES (?,?,?,?,?)");
+        $ins->bindValue(1, $listingId, PDO::PARAM_INT);
+        $ins->bindValue(2, $sort, PDO::PARAM_INT);
+        $ins->bindValue(3, $mime);
+        $ins->bindValue(4, file_get_contents($files['tmp_name'][$i]), PDO::PARAM_LOB);
+        $ins->bindValue(5, db_now());
+        $ins->execute();
+        $saved++;
     }
-    $st = db()->prepare("INSERT INTO images (mime, data, created_at) VALUES (?,?,?)");
-    $st->bindValue(1, $mime);
-    $st->bindValue(2, file_get_contents($f['tmp_name']), PDO::PARAM_LOB);
-    $st->bindValue(3, db_now());
-    $st->execute();
-    return 'image.php?id=' . (int) db()->lastInsertId();
+    return $saved;
 }
 
-/** Delete the stored photo referenced by a listing's image value (if any). */
+/** All photo URLs for a listing, in order. Falls back to the legacy cover
+ *  value or a bundled seed image so every listing always has >= 1 photo. */
+function listing_photos(int $listingId, ?string $legacy = null): array {
+    $st = db()->prepare("SELECT id FROM images WHERE listing_id = ? ORDER BY sort, id");
+    $st->execute([$listingId]);
+    $urls = array_map(fn($r) => 'image.php?id=' . (int) $r['id'], $st->fetchAll());
+    if ($urls) return $urls;
+    if ($legacy) return [$legacy];
+    return ['assets/img/seed1.svg'];
+}
+
+/** Refresh the listing's cover (listings.image) to its first photo. */
+function refresh_cover(int $listingId): void {
+    $st = db()->prepare("SELECT id FROM images WHERE listing_id = ? ORDER BY sort, id LIMIT 1");
+    $st->execute([$listingId]);
+    $row = $st->fetch();
+    if ($row) {
+        db()->prepare("UPDATE listings SET image = ? WHERE id = ?")
+            ->execute(['image.php?id=' . (int) $row['id'], $listingId]);
+    }
+}
+
+/** Remove every stored photo belonging to a listing. */
+function delete_listing_images(int $listingId): void {
+    db()->prepare("DELETE FROM images WHERE listing_id = ?")->execute([$listingId]);
+}
+
+/** Legacy single-cover cleanup (old refs not tied to a listing_id). */
 function delete_listing_image(?string $imageVal): void {
     if ($imageVal && preg_match('/^image\.php\?id=(\d+)$/', $imageVal, $m)) {
         db()->prepare("DELETE FROM images WHERE id = ?")->execute([(int) $m[1]]);
     }
+}
+
+/** "RM 650<small>/mo</small>" for rentals, "RM 450,000" for sales. */
+function price_label(array $l, bool $small = true): string {
+    $p = 'RM ' . number_format((int) $l['price']);
+    if (($l['listing_type'] ?? 'rent') === 'sale') return $p;
+    return $p . ($small ? '<small>/mo</small>' : '/mo');
 }
 
 function listing_image(array $l): string {

@@ -45,6 +45,49 @@
     modal.querySelector('#mYes').focus();
   }, true);
 
+
+  /* ---------- photo galleries: tap right half = next, left half = prev ---------- */
+  (function () {
+    function setPhoto(g, idx) {
+      var photos = JSON.parse(g.dataset.photos || '[]');
+      if (!photos.length) return;
+      idx = (idx + photos.length) % photos.length;
+      g.dataset.idx = idx;
+      g.style.backgroundImage = "url('" + photos[idx] + "')";
+      var segs = g.querySelectorAll('.seg');
+      segs.forEach(function (sg, i) { sg.classList.toggle('on', i === idx); });
+      g.classList.remove('flip-anim');
+      void g.offsetWidth; /* restart animation */
+      g.classList.add('flip-anim');
+    }
+    /* taps on g-zones flip; on swipe cards we must NOT flip when the user
+       was dragging, so track pointer travel and only flip on true taps. */
+    var down = null;
+    document.addEventListener('pointerdown', function (e) {
+      var z = e.target.closest('.g-zone');
+      if (z) down = { z: z, x: e.clientX, y: e.clientY };
+    }, true);
+    document.addEventListener('pointerup', function (e) {
+      if (!down) return;
+      var z = down.z, moved = Math.hypot(e.clientX - down.x, e.clientY - down.y);
+      down = null;
+      if (moved > 8) return; /* was a drag, not a tap */
+      var g = z.closest('.gallery');
+      if (!g) return;
+      var idx = parseInt(g.dataset.idx || '0', 10);
+      setPhoto(g, idx + (z.classList.contains('g-next') ? 1 : -1));
+    }, true);
+    /* keyboard: when a detail gallery exists, [ and ] flip photos */
+    document.addEventListener('keydown', function (e) {
+      if (e.target.matches('input, textarea, select')) return;
+      var g = document.querySelector('.detail-photo.gallery');
+      if (!g) return;
+      var idx = parseInt(g.dataset.idx || '0', 10);
+      if (e.key === ']') setPhoto(g, idx + 1);
+      if (e.key === '[') setPhoto(g, idx - 1);
+    });
+  })();
+
   /* ---------- swipe deck ---------- */
   var page = document.querySelector('.swipe-page');
   if (!page) return;

@@ -11,6 +11,15 @@ $st = db()->prepare("SELECT l.*, o.name AS owner_name FROM listings l
 $st->execute([$u['id']]);
 $cards = $st->fetchAll();
 
+/* all photos for the deck in one query */
+$photoMap = [];
+if ($cards) {
+    $ids = implode(',', array_map(fn($c) => (int) $c['id'], $cards));
+    foreach (db()->query("SELECT id, listing_id FROM images WHERE listing_id IN ($ids) ORDER BY sort, id") as $r) {
+        $photoMap[(int) $r['listing_id']][] = 'image.php?id=' . (int) $r['id'];
+    }
+}
+
 $likes = db()->prepare("SELECT COUNT(*) c FROM swipes WHERE tenant_id = ? AND direction = 'like'");
 $likes->execute([$u['id']]);
 $likeCount = (int) $likes->fetch()['c'];
@@ -25,9 +34,18 @@ page_top('Swipe rooms', $u);
 
   <div class="deck" id="deck">
     <?php foreach (array_reverse($cards) as $l): ?>
+      <?php $photos = $photoMap[(int)$l['id']] ?? [html_entity_decode(listing_image($l))]; ?>
       <article class="swipe-card" data-id="<?= (int)$l['id'] ?>">
-        <div class="swipe-photo" style="background-image:url('<?= listing_image($l) ?>')">
-          <span class="price-chip">RM <?= number_format((int)$l['price']) ?><small>/mo</small></span>
+        <div class="swipe-photo gallery" data-photos='<?= e(json_encode($photos)) ?>'
+             style="background-image:url('<?= e($photos[0]) ?>')">
+          <?php if (count($photos) > 1): ?>
+          <div class="seg-row">
+            <?php foreach ($photos as $i => $unused): ?><span class="seg <?= $i === 0 ? 'on' : '' ?>"></span><?php endforeach; ?>
+          </div>
+          <span class="g-zone g-prev" aria-hidden="true"></span>
+          <span class="g-zone g-next" aria-hidden="true"></span>
+          <?php endif; ?>
+          <span class="price-chip"><?= price_label($l) ?></span>
           <span class="stamp stamp-like">SUKA ✓</span>
           <span class="stamp stamp-nope">TAK NAK ✕</span>
         </div>

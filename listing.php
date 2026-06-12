@@ -1,6 +1,6 @@
 <?php
 require __DIR__ . '/config.php';
-$u = require_login();
+$u = current_user(); // may be null: listings are public
 
 $st = db()->prepare("SELECT l.*, o.name AS owner_name, o.phone AS owner_phone, o.email AS owner_email
                      FROM listings l JOIN users o ON o.id = l.owner_id WHERE l.id = ?");
@@ -8,14 +8,18 @@ $st->execute([(int) ($_GET['id'] ?? 0)]);
 $l = $st->fetch();
 
 $canSee = $l && (
-    $u['role'] === 'admin'
-    || ($u['role'] === 'owner' && (int)$l['owner_id'] === (int)$u['id'])
-    || ($u['role'] === 'tenant' && $l['status'] === 'active')
+    $l['status'] === 'active'
+    || ($u && $u['role'] === 'admin')
+    || ($u && $u['role'] === 'owner' && (int)$l['owner_id'] === (int)$u['id'])
 );
-if (!$canSee) { flash('Listing not found or unavailable.', 'warn'); redirect(role_home($u['role'])); }
+if (!$canSee) {
+    flash('Listing not found or unavailable.', 'warn');
+    redirect($u ? role_home($u['role']) : 'index.php');
+}
+$loginNext = 'index.php?m=login&next=' . urlencode('listing.php?id=' . (int) $l['id']);
 
 $myLike = null;
-if ($u['role'] === 'tenant') {
+if ($u && $u['role'] === 'tenant') {
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         csrf_check();
         $dir = ($_POST['direction'] ?? '') === 'like' ? 'like' : 'pass';
@@ -32,11 +36,22 @@ $likes = db()->prepare("SELECT COUNT(*) c FROM swipes WHERE listing_id = ? AND d
 $likes->execute([$l['id']]);
 $likeCount = (int) $likes->fetch()['c'];
 
+$photos = listing_photos((int) $l['id'], html_entity_decode(listing_image($l)));
 page_top($l['title'], $u);
 ?>
 <article class="detail">
-  <div class="detail-photo" style="background-image:url('<?= listing_image($l) ?>')">
-    <span class="price-chip price-chip-lg">RM <?= number_format((int)$l['price']) ?><small>/month</small></span>
+  <div class="detail-photo gallery" data-photos='<?= e(json_encode($photos)) ?>'
+       style="background-image:url('<?= e($photos[0]) ?>')">
+    <?php if (count($photos) > 1): ?>
+    <div class="seg-row">
+      <?php foreach ($photos as $i => $unused): ?><span class="seg <?= $i === 0 ? 'on' : '' ?>"></span><?php endforeach; ?>
+    </div>
+    <span class="g-zone g-prev" aria-hidden="true"></span>
+    <span class="g-zone g-next" aria-hidden="true"></span>
+    <span class="g-hint">Tap to flip photos</span>
+    <?php endif; ?>
+    <span class="price-chip price-chip-lg"><?= price_label($l) ?></span>
+    <?php if ($l['listing_type'] === 'sale'): ?><span class="status-chip">For sale</span><?php endif; ?>
     <?php if ($l['status'] !== 'active'): ?><span class="status-chip">Status: <?= e($l['status']) ?></span><?php endif; ?>
   </div>
   <div class="detail-main">
@@ -62,13 +77,23 @@ page_top($l['title'], $u);
 
     <div class="card contact-card">
       <h3>Owner</h3>
-      <p><strong><?= e($l['owner_name']) ?></strong></p>
-      <?php if ($l['owner_phone']): ?><p>📞 <a href="tel:<?= e($l['owner_phone']) ?>"><?= e($l['owner_phone']) ?></a></p><?php endif; ?>
-      <p>✉️ <a href="mailto:<?= e($l['owner_email']) ?>"><?= e($l['owner_email']) ?></a></p>
+      <?php if ($u): ?>
+        <p><strong><?= e($l['owner_name']) ?></strong></p>
+        <?php if ($l['owner_phone']): ?><p>📞 <a href="tel:<?= e($l['owner_phone']) ?>"><?= e($l['owner_phone']) ?></a></p><?php endif; ?>
+        <p>✉️ <a href="mailto:<?= e($l['owner_email']) ?>"><?= e($l['owner_email']) ?></a></p>
+      <?php else: ?>
+        <p class="muted">Sign in to see the owner's phone and email — it takes a few seconds and it's free.</p>
+        <a class="btn btn-primary" href="<?= e($loginNext) ?>">Contact owner</a>
+      <?php endif; ?>
       <p class="muted">♥ <?= $likeCount ?> tenant<?= $likeCount === 1 ? '' : 's' ?> shortlisted this room</p>
     </div>
 
-    <?php if ($u['role'] === 'tenant'): ?>
+    <?php if (!$u): ?>
+      <div class="detail-actions">
+        <a class="btn btn-primary" href="<?= e($loginNext) ?>">Contact owner</a>
+        <a class="btn btn-ghost" href="index.php#results">← Back to search</a>
+      </div>
+    <?php elseif ($u['role'] === 'tenant'): ?>
       <form method="post" class="detail-actions">
         <?= csrf_field() ?>
         <?php if ($myLike === 'like'): ?>

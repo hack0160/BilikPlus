@@ -23,6 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('Listing is live again.');
             break;
         case 'delete':
+            delete_listing_images($id);
             delete_listing_image($l['image']);
             db()->prepare("DELETE FROM listings WHERE id = ?")->execute([$id]);
             flash('Listing deleted.');
@@ -91,7 +92,7 @@ page_top('My listings', $u);
     <?php foreach ($rows as $l): ?>
       <article class="card listing-card <?= $l['status'] !== 'active' ? 'is-dimmed' : '' ?>">
         <a class="listing-photo" href="listing.php?id=<?= (int)$l['id'] ?>" style="background-image:url('<?= listing_image($l) ?>')">
-          <span class="price-chip">RM <?= number_format((int)$l['price']) ?><small>/mo</small></span>
+          <span class="price-chip"><?= price_label($l) ?></span>
           <span class="pill pill-<?= e($l['status']) ?> pill-on-photo"><?= e($l['status']) ?></span>
         </a>
         <div class="listing-body">

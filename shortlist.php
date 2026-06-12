@@ -51,7 +51,7 @@ page_top('My shortlist', $u);
     <?php foreach ($rows as $l): ?>
       <article class="card listing-card <?= $l['status'] !== 'active' ? 'is-dimmed' : '' ?>">
         <a class="listing-photo" href="listing.php?id=<?= (int)$l['id'] ?>" style="background-image:url('<?= listing_image($l) ?>')">
-          <span class="price-chip">RM <?= number_format((int)$l['price']) ?><small>/mo</small></span>
+          <span class="price-chip"><?= price_label($l) ?></span>
           <?php if ($l['status'] !== 'active'): ?><span class="status-chip">No longer available</span><?php endif; ?>
         </a>
         <div class="listing-body">

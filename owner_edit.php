@@ -5,6 +5,7 @@ $u = require_role('owner');
 $id = (int) ($_GET['id'] ?? $_POST['id'] ?? 0);
 $l = [
     'title' => '', 'area' => '', 'city' => 'Kuala Lumpur', 'address' => '', 'price' => '',
+    'listing_type' => 'rent',
     'room_type' => 'Medium Room', 'property_type' => 'Condominium', 'furnishing' => 'Fully furnished',
     'gender_pref' => 'Any', 'amenities' => '', 'description' => '', 'image' => '', 'status' => 'active',
 ];
@@ -15,16 +16,27 @@ if ($id) {
     if (!$l) { flash('Listing not found.', 'warn'); redirect('owner_listings.php'); }
 }
 
+/* remove one photo (from the edit form thumbnails) */
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'delphoto' && $id) {
+    csrf_check();
+    db()->prepare("DELETE FROM images WHERE id = ? AND listing_id = ?")
+       ->execute([(int) $_POST['photo_id'], $id]);
+    refresh_cover($id);
+    flash('Photo removed.');
+    redirect('owner_edit.php?id=' . $id);
+}
+
 $roomTypes = ['Single Room', 'Medium Room', 'Master Room', 'Studio', 'Whole Unit'];
 $propTypes = ['Condominium', 'Apartment', 'Serviced Residence', 'Flat', 'Terrace House', 'Double Storey House'];
 $furnish   = ['Fully furnished', 'Partially furnished', 'Unfurnished'];
 $genders   = ['Any', 'Male', 'Female'];
 $err = '';
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'delphoto') {
     csrf_check();
     foreach (['title','area','city','address','amenities','description'] as $f) $l[$f] = trim($_POST[$f] ?? '');
     $l['price']         = (int) ($_POST['price'] ?? 0);
+    $l['listing_type']  = ($_POST['listing_type'] ?? '') === 'sale' ? 'sale' : 'rent';
     $l['room_type']     = in_array($_POST['room_type'] ?? '', $roomTypes, true) ? $_POST['room_type'] : 'Medium Room';
     $l['property_type'] = in_array($_POST['property_type'] ?? '', $propTypes, true) ? $_POST['property_type'] : 'Condominium';
     $l['furnishing']    = in_array($_POST['furnishing'] ?? '', $furnish, true) ? $_POST['furnishing'] : 'Fully furnished';
@@ -35,28 +47,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($l['title'] === '' || $l['area'] === '' || $l['city'] === '') {
         $err = 'Title, area and city are required.';
-    } elseif ($l['price'] < 50 || $l['price'] > 50000) {
+    } elseif ($l['listing_type'] === 'rent' && ($l['price'] < 50 || $l['price'] > 50000)) {
         $err = 'Monthly rent must be between RM 50 and RM 50,000.';
+    } elseif ($l['listing_type'] === 'sale' && ($l['price'] < 10000 || $l['price'] > 50000000) ) {
+        $err = 'Sale price must be between RM 10,000 and RM 50,000,000.';
     } else {
         try {
-            $newImg = handle_image_upload('photo');
-            if ($newImg) {
-                delete_listing_image($l['image']);   // free the old stored photo
-                $l['image'] = $newImg;
-            }
             if ($id) {
-                db()->prepare("UPDATE listings SET title=?,area=?,city=?,address=?,price=?,room_type=?,property_type=?,
+                db()->prepare("UPDATE listings SET title=?,area=?,city=?,address=?,price=?,listing_type=?,room_type=?,property_type=?,
                                furnishing=?,gender_pref=?,amenities=?,description=?,image=?,status=?
                                WHERE id=? AND owner_id=?")
-                   ->execute([$l['title'],$l['area'],$l['city'],$l['address'],$l['price'],$l['room_type'],$l['property_type'],
+                   ->execute([$l['title'],$l['area'],$l['city'],$l['address'],$l['price'],$l['listing_type'],$l['room_type'],$l['property_type'],
                               $l['furnishing'],$l['gender_pref'],$l['amenities'],$l['description'],$l['image'],$l['status'],$id,$u['id']]);
-                flash('Listing updated.');
+                $added = handle_images_upload('photos', $id);
+                refresh_cover($id);
+                flash($added ? "Listing updated — $added photo(s) added." : 'Listing updated.');
             } else {
-                db()->prepare("INSERT INTO listings (owner_id,title,area,city,address,price,room_type,property_type,
+                db()->prepare("INSERT INTO listings (owner_id,title,area,city,address,price,listing_type,room_type,property_type,
                                furnishing,gender_pref,amenities,description,image,status)
-                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
-                   ->execute([$u['id'],$l['title'],$l['area'],$l['city'],$l['address'],$l['price'],$l['room_type'],$l['property_type'],
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)")
+                   ->execute([$u['id'],$l['title'],$l['area'],$l['city'],$l['address'],$l['price'],$l['listing_type'],$l['room_type'],$l['property_type'],
                               $l['furnishing'],$l['gender_pref'],$l['amenities'],$l['description'],$l['image'] ?: 'assets/img/seed1.svg',$l['status']]);
+                $newId = (int) db()->lastInsertId();
+                handle_images_upload('photos', $newId);
+                refresh_cover($newId);
                 flash('Listing published. Tenants can swipe on it now.');
             }
             redirect('owner_listings.php');
@@ -96,8 +110,14 @@ page_top($id ? 'Edit listing' : 'New listing', $u);
     </label>
 
     <div class="form-grid">
-      <label>Monthly rent (RM)
-        <input type="number" name="price" required min="50" max="50000" value="<?= e((string)$l['price']) ?>">
+      <label>Listing type
+        <select name="listing_type">
+          <option value="rent" <?= $l['listing_type'] === 'rent' ? 'selected' : '' ?>>For rent (monthly)</option>
+          <option value="sale" <?= $l['listing_type'] === 'sale' ? 'selected' : '' ?>>For sale</option>
+        </select>
+      </label>
+      <label>Price (RM) <span class="opt">monthly rent, or full price for sale</span>
+        <input type="number" name="price" required min="50" max="50000000" value="<?= e((string)$l['price']) ?>">
       </label>
       <label>Room type
         <select name="room_type"><?php foreach ($roomTypes as $t): ?><option <?= $l['room_type'] === $t ? 'selected' : '' ?>><?= e($t) ?></option><?php endforeach; ?></select>
@@ -127,12 +147,31 @@ page_top($id ? 'Edit listing' : 'New listing', $u);
       <textarea name="description" rows="5" placeholder="Deposit terms, housemates, nearby transport, anything tenants should know."><?= e($l['description']) ?></textarea>
     </label>
 
-    <label>Photo <span class="opt">(JPG, PNG or WebP, max 3 MB<?= $l['image'] ? ' — leave empty to keep current photo' : '' ?>)</span>
-      <input type="file" name="photo" accept="image/jpeg,image/png,image/webp">
+    <label>Photos <span class="opt">(up to 6 · JPG, PNG or WebP, max 3 MB each · first photo is the cover)</span>
+      <input type="file" name="photos[]" accept="image/jpeg,image/png,image/webp" multiple>
     </label>
-    <?php if ($l['image']): ?>
-      <img class="form-preview" src="<?= listing_image($l) ?>" alt="Current listing photo">
-    <?php endif; ?>
+    <?php if ($id):
+        $st = db()->prepare("SELECT id FROM images WHERE listing_id = ? ORDER BY sort, id");
+        $st->execute([$id]);
+        $photos = $st->fetchAll();
+        if ($photos): ?>
+      <div class="photo-strip">
+        <?php foreach ($photos as $i => $ph): ?>
+          <div class="photo-thumb">
+            <img src="image.php?id=<?= (int)$ph['id'] ?>" alt="Photo <?= $i + 1 ?>">
+            <?php if ($i === 0): ?><span class="photo-cover">Cover</span><?php endif; ?>
+            <button name="nothing" type="submit" form="delphoto<?= (int)$ph['id'] ?>" class="photo-del" aria-label="Remove photo">✕</button>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <?php foreach ($photos as $ph): ?>
+        <form method="post" id="delphoto<?= (int)$ph['id'] ?>" data-confirm="Remove this photo?">
+          <?= csrf_field() ?>
+          <input type="hidden" name="action" value="delphoto">
+          <input type="hidden" name="photo_id" value="<?= (int)$ph['id'] ?>">
+        </form>
+      <?php endforeach; ?>
+    <?php endif; endif; ?>
 
     <div class="detail-actions">
       <button class="btn btn-primary"><?= $id ? 'Save changes' : 'Publish listing' ?></button>
