@@ -19,6 +19,7 @@ jobs:
           server: ${{ secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftp
           server-dir: htdocs/          # change to htdocs/bilikgo/ if using a subfolder
           # never overwrite live user data on the server:
           exclude: |
