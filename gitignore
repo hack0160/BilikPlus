@@ -1,0 +1,4 @@
+# BilikGo — keep live data and secrets out of the repository
+data/*.sqlite
+uploads/*
+!uploads/.htaccess
