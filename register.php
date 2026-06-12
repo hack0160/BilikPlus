@@ -7,6 +7,7 @@ $old = ['name' => '', 'email' => '', 'phone' => '', 'role' => 'tenant'];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
+    $fromLanding = ($_POST['from'] ?? '') === 'landing';
     $old['name']  = trim($_POST['name'] ?? '');
     $old['email'] = trim(strtolower($_POST['email'] ?? ''));
     $old['phone'] = trim($_POST['phone'] ?? '');
@@ -25,7 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $st->execute([$old['email']]);
         if ($st->fetch()) {
             $err = 'That email is already registered. Try signing in instead.';
-        } else {
+        }
+        if ($err === '') {
             $st = db()->prepare("INSERT INTO users (name,email,phone,password_hash,role) VALUES (?,?,?,?,?)");
             $st->execute([$old['name'], $old['email'], $old['phone'], password_hash($pass, PASSWORD_DEFAULT), $old['role']]);
             $_SESSION['uid'] = (int) db()->lastInsertId();
@@ -33,6 +35,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash('Account created. Welcome to ' . APP_NAME . '!');
             redirect(role_home($old['role']));
         }
+    }
+    if ($err !== '' && $fromLanding) {
+        redirect('index.php?m=register&err=' . urlencode($err)
+               . '&name=' . urlencode($old['name']) . '&email=' . urlencode($old['email'])
+               . '&phone=' . urlencode($old['phone']) . '&role=' . urlencode($old['role']));
     }
 }
 

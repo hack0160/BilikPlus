@@ -261,6 +261,7 @@ function page_top(string $title, ?array $u = null): void {
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23D7263D'/><path d='M8 17l8-8 8 8v7H8z' fill='%23F7F6F2'/></svg>">
 </head>
 <body>
+<div id="bg3d" aria-hidden="true"></div>
 <header class="topbar">
   <a class="brand" href="index.php"><span class="brand-mark">⌂</span> Bilik<span>Go</span></a>
   <nav class="nav">
@@ -299,6 +300,8 @@ function page_bottom(): void {
   <span><?= APP_NAME ?> — find your bilik, swipe by swipe.</span>
   <span>Demo build · Klang Valley, Malaysia</span>
 </footer>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js" defer></script>
+<script src="assets/bg.js" defer></script>
 <script src="assets/app.js"></script>
 </body>
 </html><?php

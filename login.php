@@ -10,10 +10,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $st = db()->prepare("SELECT * FROM users WHERE email = ?");
     $st->execute([$email]);
     $u = $st->fetch();
+    $fromLanding = ($_POST['from'] ?? '') === 'landing';
     if (!$u || !password_verify($pass, $u['password_hash'])) {
         $err = 'Email or password is incorrect.';
+        if ($fromLanding) redirect('index.php?m=login&err=' . urlencode($err) . '&email=' . urlencode($email));
     } elseif ($u['status'] !== 'active') {
         $err = 'This account is suspended. Contact the site admin.';
+        if ($fromLanding) redirect('index.php?m=login&err=' . urlencode($err) . '&email=' . urlencode($email));
     } else {
         session_regenerate_id(true);
         $_SESSION['uid'] = $u['id'];

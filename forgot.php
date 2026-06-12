@@ -21,6 +21,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
               "Hi {$u['name']},\n\nReset your password using this link (valid 1 hour):\n$link\n\nIf you didn't request this, ignore this email.");
         if (DEMO_MODE) $demoLink = $link;
     }
+    if (($_POST['from'] ?? '') === 'landing') {
+        redirect('index.php?m=forgot&sent=1' . ($demoLink ? '&link=' . urlencode($demoLink) : ''));
+    }
 }
 
 page_top('Forgot password');

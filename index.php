@@ -15,6 +15,14 @@ $featured = db()->query("SELECT l.*,
     FROM listings l WHERE l.status = 'active'
     ORDER BY likes DESC, l.created_at DESC LIMIT 8")->fetchAll();
 
+/* modal state passed back by auth endpoints on error/success */
+$m      = $_GET['m'] ?? '';
+$mErr   = trim($_GET['err'] ?? '');
+$mSent  = isset($_GET['sent']);
+$mLink  = $_GET['link'] ?? '';
+$pre    = ['email' => trim($_GET['email'] ?? ''), 'name' => trim($_GET['name'] ?? ''),
+           'phone' => trim($_GET['phone'] ?? ''), 'role' => ($_GET['role'] ?? '') === 'owner' ? 'owner' : 'tenant'];
+
 $areas = db()->query("SELECT DISTINCT area FROM listings WHERE status = 'active' ORDER BY area LIMIT 12")->fetchAll(PDO::FETCH_COLUMN);
 if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', 'Cyberjaya', 'Setia Alam'];
 $marquee = '';
@@ -41,8 +49,8 @@ foreach ($areas as $a) $marquee .= '<span>' . e($a) . ' <i>✦</i></span>';
     <a href="#how">How it works</a>
     <a href="#rooms">Rooms</a>
     <a href="#roles">For owners</a>
-    <a class="lbtn lbtn-ghost" href="login.php">Sign in</a>
-    <a class="lbtn lbtn-hot" href="register.php">Get started</a>
+    <a class="lbtn lbtn-ghost" href="login.php" data-modal="login">Sign in</a>
+    <a class="lbtn lbtn-hot" href="register.php" data-modal="register">Get started</a>
   </nav>
 </header>
 
@@ -53,7 +61,7 @@ foreach ($areas as $a) $marquee .= '<span>' . e($a) . ' <i>✦</i></span>';
     <h1>Your next <span class="stroke">bilik</span> is one <span class="glow">swipe</span> away.</h1>
     <p>House-hunting, minus the hundred open tabs. Swipe through real rooms across the Klang Valley — right kalau suka, left kalau tak nak.</p>
     <div class="hero-cta">
-      <a class="lbtn lbtn-hot lbtn-lg" href="register.php">Start swiping — it's free</a>
+      <a class="lbtn lbtn-hot lbtn-lg" href="register.php" data-modal="register">Start swiping — it's free</a>
       <a class="lbtn lbtn-ghost lbtn-lg" href="#how">See how it works</a>
     </div>
     <?php $h = $featured[0] ?? null; if ($h): ?>
@@ -169,7 +177,7 @@ foreach ($areas as $a) $marquee .= '<span>' . e($a) . ' <i>✦</i></span>';
   <section class="cta rv">
     <h2>Jom, find your bilik.</h2>
     <p>Free for tenants. Free for owners. Takes a minute to join.</p>
-    <a class="lbtn lbtn-hot lbtn-lg" href="register.php">Create your account</a>
+    <a class="lbtn lbtn-hot lbtn-lg" href="register.php" data-modal="register">Create your account</a>
     <p class="demo-creds">Just browsing? Demo logins — password <code>Demo@123</code>:
       <code>tenant@bilikgo.test</code> · <code>owner@bilikgo.test</code> · <code>admin@bilikgo.test</code></p>
   </section>
@@ -179,6 +187,107 @@ foreach ($areas as $a) $marquee .= '<span>' . e($a) . ' <i>✦</i></span>';
   <span>BilikGo — find your bilik, swipe by swipe.</span>
   <span>Klang Valley, Malaysia</span>
 </footer>
+
+
+<!-- ============================ AUTH MODALS ============================ -->
+<div class="lmodal" id="lm-login" <?= $m === 'login' ? '' : 'hidden' ?>>
+  <div class="lmodal-card" role="dialog" aria-modal="true" aria-labelledby="lmlT">
+    <button class="lmodal-close" type="button" data-close aria-label="Close">✕</button>
+    <h2 id="lmlT">Welcome back</h2>
+    <p class="sub">Your shortlist missed you.</p>
+    <?php if ($m === 'login' && $mErr): ?><div class="lmodal-err"><?= e($mErr) ?></div><?php endif; ?>
+    <form method="post" action="login.php">
+      <?= csrf_field() ?>
+      <input type="hidden" name="from" value="landing">
+      <label>Email <input type="email" name="email" required autocomplete="email" value="<?= $m === 'login' ? e($pre['email']) : '' ?>"></label>
+      <label>Password <input type="password" name="password" required autocomplete="current-password"></label>
+      <button class="lbtn lbtn-hot lbtn-block">Sign in</button>
+    </form>
+    <div class="lmodal-links">
+      <button type="button" data-swap="forgot">Forgot password?</button>
+      <span>New here? <button type="button" data-swap="register">Create an account</button></span>
+    </div>
+  </div>
+</div>
+
+<div class="lmodal" id="lm-register" <?= $m === 'register' ? '' : 'hidden' ?>>
+  <div class="lmodal-card" role="dialog" aria-modal="true" aria-labelledby="lmrT">
+    <button class="lmodal-close" type="button" data-close aria-label="Close">✕</button>
+    <h2 id="lmrT">Create your account</h2>
+    <p class="sub">Looking for a room, or renting one out?</p>
+    <?php if ($m === 'register' && $mErr): ?><div class="lmodal-err"><?= e($mErr) ?></div><?php endif; ?>
+    <form method="post" action="register.php">
+      <?= csrf_field() ?>
+      <input type="hidden" name="from" value="landing">
+      <div class="lm-roles">
+        <label><input type="radio" name="role" value="tenant" <?= $pre['role'] === 'tenant' ? 'checked' : '' ?>>
+          <span><strong>I'm a tenant</strong><small>Swipe &amp; shortlist rooms</small></span></label>
+        <label><input type="radio" name="role" value="owner" <?= $pre['role'] === 'owner' ? 'checked' : '' ?>>
+          <span><strong>I'm an owner</strong><small>List &amp; manage rooms</small></span></label>
+      </div>
+      <label>Full name <input type="text" name="name" required value="<?= $m === 'register' ? e($pre['name']) : '' ?>"></label>
+      <label>Email <input type="email" name="email" required autocomplete="email" value="<?= $m === 'register' ? e($pre['email']) : '' ?>"></label>
+      <label>Phone / WhatsApp <span class="opt">(optional)</span> <input type="tel" name="phone" placeholder="012-3456789" value="<?= $m === 'register' ? e($pre['phone']) : '' ?>"></label>
+      <label>Password <span class="opt">(min 8 characters)</span> <input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+      <label>Confirm password <input type="password" name="password2" required minlength="8" autocomplete="new-password"></label>
+      <button class="lbtn lbtn-hot lbtn-block">Create account</button>
+    </form>
+    <div class="lmodal-links">
+      <span>Already registered? <button type="button" data-swap="login">Sign in</button></span>
+    </div>
+  </div>
+</div>
+
+<div class="lmodal" id="lm-forgot" <?= $m === 'forgot' ? '' : 'hidden' ?>>
+  <div class="lmodal-card" role="dialog" aria-modal="true" aria-labelledby="lmfT">
+    <button class="lmodal-close" type="button" data-close aria-label="Close">✕</button>
+    <h2 id="lmfT">Forgot your password?</h2>
+    <p class="sub">We'll send a reset link, valid for one hour.</p>
+    <?php if ($m === 'forgot' && $mSent): ?>
+      <div class="lmodal-ok">If that email is registered, a reset link has been sent.
+        <?php if ($mLink): ?><br><br><strong>Demo mode</strong> — your link:<br><a href="<?= e($mLink) ?>"><?= e($mLink) ?></a><?php endif; ?>
+      </div>
+    <?php endif; ?>
+    <form method="post" action="forgot.php">
+      <?= csrf_field() ?>
+      <input type="hidden" name="from" value="landing">
+      <label>Email <input type="email" name="email" required autocomplete="email"></label>
+      <button class="lbtn lbtn-hot lbtn-block">Send reset link</button>
+    </form>
+    <div class="lmodal-links">
+      <button type="button" data-swap="login">Back to sign in</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* auth modal controller */
+(function () {
+  function open(name) {
+    document.querySelectorAll('.lmodal').forEach(function (m) { m.hidden = true; });
+    var m = document.getElementById('lm-' + name);
+    if (m) { m.hidden = false; var f = m.querySelector('input:not([type=hidden]):not([type=radio])'); if (f) f.focus(); }
+    document.body.style.overflow = m && !m.hidden ? 'hidden' : '';
+  }
+  function closeAll() {
+    document.querySelectorAll('.lmodal').forEach(function (m) { m.hidden = true; });
+    document.body.style.overflow = '';
+    if (location.search) history.replaceState(null, '', location.pathname);
+  }
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('[data-modal]');
+    if (t) { e.preventDefault(); open(t.dataset.modal); return; }
+    var sw = e.target.closest('[data-swap]');
+    if (sw) { open(sw.dataset.swap); return; }
+    if (e.target.closest('[data-close]')) { closeAll(); return; }
+    if (e.target.classList && e.target.classList.contains('lmodal')) closeAll();
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(); });
+  // auto-open if the server bounced us back with state
+  var visible = document.querySelector('.lmodal:not([hidden])');
+  if (visible) { document.body.style.overflow = 'hidden'; var f = visible.querySelector('.lmodal-err, .lmodal-ok'); if (f) f.scrollIntoView({ block: 'center' }); }
+})();
+</script>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="assets/landing.js"></script>
