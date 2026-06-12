@@ -41,16 +41,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('admin_users.php');
 }
 
-$rows = db()->query("SELECT u.*,
+$q = trim($_GET['q'] ?? '');
+$f = $_GET['f'] ?? 'all';
+$sql = "SELECT u.*,
         (SELECT COUNT(*) FROM listings l WHERE l.owner_id = u.id) AS listing_count
-        FROM users u ORDER BY u.created_at DESC")->fetchAll();
+        FROM users u WHERE 1=1";
+$args = [];
+if ($q !== '') { $sql .= " AND (u.name LIKE ? OR u.email LIKE ?)"; $args[] = "%$q%"; $args[] = "%$q%"; }
+if (in_array($f, ['admin','owner','tenant'], true)) { $sql .= " AND u.role = ?"; $args[] = $f; }
+if ($f === 'suspended') $sql .= " AND u.status = 'suspended'";
+$st = db()->prepare($sql . " ORDER BY u.created_at DESC");
+$st->execute($args);
+$rows = $st->fetchAll();
+$counts = ['admin'=>0,'owner'=>0,'tenant'=>0,'suspended'=>0,'all'=>0];
+foreach (db()->query("SELECT role, status, COUNT(*) c FROM users GROUP BY role, status") as $r) {
+    $counts[$r['role']] += (int)$r['c'];
+    $counts['all'] += (int)$r['c'];
+    if ($r['status'] === 'suspended') $counts['suspended'] += (int)$r['c'];
+}
 
 page_top('Manage users', $u);
 ?>
-<section class="page-head">
-  <h1>Users</h1>
-  <p class="muted">Change roles, suspend accounts, or remove them entirely.</p>
+<section class="page-head split">
+  <div>
+    <h1>Users</h1>
+    <p class="muted">Change roles, suspend accounts, or remove them entirely.</p>
+  </div>
+  <form method="get" class="search-form">
+    <input type="search" name="q" placeholder="Search name or email…" value="<?= e($q) ?>">
+    <?php if ($f !== 'all'): ?><input type="hidden" name="f" value="<?= e($f) ?>"><?php endif; ?>
+    <button class="btn btn-outline btn-sm">Search</button>
+  </form>
 </section>
+
+<div class="chip-row">
+  <?php $base = $q !== '' ? '&q=' . urlencode($q) : '';
+        foreach (['all' => "Everyone <span class=\"chip-n\">{$counts['all']}</span>",
+                  'tenant' => "Tenants <span class=\"chip-n\">{$counts['tenant']}</span>",
+                  'owner' => "Owners <span class=\"chip-n\">{$counts['owner']}</span>",
+                  'admin' => "Admins <span class=\"chip-n\">{$counts['admin']}</span>",
+                  'suspended' => "Suspended <span class=\"chip-n\">{$counts['suspended']}</span>"] as $k => $label): ?>
+    <a class="chip <?= $f === $k ? 'on' : '' ?>" href="?f=<?= $k . $base ?>"><?= $label ?></a>
+  <?php endforeach; ?>
+</div>
 
 <section class="card table-card">
   <div class="table-scroll"><table>
@@ -88,7 +121,7 @@ page_top('Manage users', $u);
               <form method="post"><?= csrf_field() ?><input type="hidden" name="user_id" value="<?= (int)$r['id'] ?>">
                 <button name="action" value="activate" class="btn btn-ghost btn-sm">Activate</button></form>
             <?php endif; ?>
-            <form method="post" onsubmit="return confirm('Delete <?= e($r['name']) ?> and all their listings? This cannot be undone.')">
+            <form method="post" data-confirm="Delete <?= e($r['name']) ?> and all their listings? This cannot be undone.">
               <?= csrf_field() ?><input type="hidden" name="user_id" value="<?= (int)$r['id'] ?>">
               <button name="action" value="delete" class="btn btn-danger btn-sm">Delete</button>
             </form>

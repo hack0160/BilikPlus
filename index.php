@@ -7,8 +7,8 @@ page_top('Find your room');
 ?>
 <section class="hero">
   <div class="hero-copy">
-    <p class="eyebrow">AAAAAAAAAAAAAAAAAARoom rental · Klang Valley &amp; beyond</p>
-    <h1>Finding a bilik shouldn't feel like homework.</h1>
+    <p class="eyebrow">Room rental · Klang Valley &amp; beyond</p>
+    <h1>Finding a bilik shouldn't feel like <span class="hl">homework</span>.</h1>
     <p class="lede">Swipe through real rooms the way you'd browse anything else — right to shortlist, left to skip. Owners list in minutes; tenants decide in seconds.</p>
     <div class="hero-actions">
       <a class="btn btn-primary" href="register.php">Create a free account</a>

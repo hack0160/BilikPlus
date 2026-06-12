@@ -31,11 +31,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('owner_listings.php');
 }
 
-$st = db()->prepare("SELECT l.*,
+$q = trim($_GET['q'] ?? '');
+$f = $_GET['f'] ?? 'all';
+$sql = "SELECT l.*,
         (SELECT COUNT(*) FROM swipes s WHERE s.listing_id = l.id AND s.direction = 'like') AS likes
-        FROM listings l WHERE l.owner_id = ? ORDER BY l.created_at DESC");
-$st->execute([$u['id']]);
+        FROM listings l WHERE l.owner_id = ?";
+$args = [$u['id']];
+if ($q !== '') { $sql .= " AND (l.title LIKE ? OR l.area LIKE ?)"; $args[] = "%$q%"; $args[] = "%$q%"; }
+if (in_array($f, ['active','hidden','suspended'], true)) { $sql .= " AND l.status = ?"; $args[] = $f; }
+$st = db()->prepare($sql . " ORDER BY l.created_at DESC");
+$st->execute($args);
 $rows = $st->fetchAll();
+
+$cn = db()->prepare("SELECT status, COUNT(*) c FROM listings WHERE owner_id = ? GROUP BY status");
+$cn->execute([$u['id']]);
+$counts = ['active'=>0,'hidden'=>0,'suspended'=>0];
+foreach ($cn->fetchAll() as $r) $counts[$r['status']] = (int)$r['c'];
+$total = array_sum($counts);
 
 page_top('My listings', $u);
 ?>
@@ -44,14 +56,35 @@ page_top('My listings', $u);
     <h1>My listings</h1>
     <p class="muted">Everything you've uploaded. Edit, hide or delete anytime.</p>
   </div>
-  <a class="btn btn-primary" href="owner_edit.php">+ New listing</a>
+  <form method="get" class="search-form">
+    <input type="search" name="q" placeholder="Search title or area…" value="<?= e($q) ?>">
+    <?php if ($f !== 'all'): ?><input type="hidden" name="f" value="<?= e($f) ?>"><?php endif; ?>
+    <button class="btn btn-outline btn-sm">Search</button>
+  </form>
 </section>
+
+<div class="chip-row">
+  <?php $base = $q !== '' ? '&q=' . urlencode($q) : '';
+        foreach (['all' => "All <span class=\"chip-n\">$total</span>",
+                  'active' => "Live <span class=\"chip-n\">{$counts['active']}</span>",
+                  'hidden' => "Hidden <span class=\"chip-n\">{$counts['hidden']}</span>",
+                  'suspended' => "Suspended <span class=\"chip-n\">{$counts['suspended']}</span>"] as $k => $label): ?>
+    <a class="chip <?= $f === $k ? 'on' : '' ?>" href="?f=<?= $k . $base ?>"><?= $label ?></a>
+  <?php endforeach; ?>
+  <a class="btn btn-primary btn-sm" href="owner_edit.php" style="margin-left:auto">+ New listing</a>
+</div>
 
 <?php if (!$rows): ?>
   <div class="card empty-state">
-    <h2>No listings yet</h2>
-    <p class="muted">Post your first room — it takes about two minutes.</p>
-    <a class="btn btn-primary" href="owner_edit.php">Post a room</a>
+    <?php if ($q !== '' || $f !== 'all'): ?>
+      <h2>No matches 🔍</h2>
+      <p class="muted">Nothing fits that search or filter. Try clearing it.</p>
+      <a class="btn btn-ghost" href="owner_listings.php">Show all listings</a>
+    <?php else: ?>
+      <h2>No listings yet</h2>
+      <p class="muted">Post your first room — it takes about two minutes.</p>
+      <a class="btn btn-primary" href="owner_edit.php">Post a room</a>
+    <?php endif; ?>
   </div>
 <?php else: ?>
   <div class="grid">
@@ -75,7 +108,7 @@ page_top('My listings', $u);
             <?php else: ?>
               <span class="muted small">Suspended by admin</span>
             <?php endif; ?>
-            <form method="post" onsubmit="return confirm('Delete this listing permanently? Tenant shortlists will lose it too.')">
+            <form method="post" data-confirm="Delete this listing permanently? Tenant shortlists will lose it too.">
               <?= csrf_field() ?><input type="hidden" name="listing_id" value="<?= (int)$l['id'] ?>">
               <button name="action" value="delete" class="btn btn-danger btn-sm">Delete</button>
             </form>

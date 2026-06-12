@@ -29,11 +29,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $q = trim($_GET['q'] ?? '');
+$f = $_GET['f'] ?? 'all';
+$where = in_array($f, ['active','hidden','suspended'], true) ? " AND l.status = '$f'" : '';
 if ($q !== '') {
     $st = db()->prepare("SELECT l.*, o.name AS owner_name,
             (SELECT COUNT(*) FROM swipes s WHERE s.listing_id = l.id AND s.direction = 'like') AS likes
             FROM listings l JOIN users o ON o.id = l.owner_id
-            WHERE l.title LIKE ? OR l.area LIKE ? OR o.name LIKE ?
+            WHERE (l.title LIKE ? OR l.area LIKE ? OR o.name LIKE ?)$where
             ORDER BY l.created_at DESC");
     $like = "%$q%";
     $st->execute([$like, $like, $like]);
@@ -41,6 +43,7 @@ if ($q !== '') {
     $st = db()->query("SELECT l.*, o.name AS owner_name,
             (SELECT COUNT(*) FROM swipes s WHERE s.listing_id = l.id AND s.direction = 'like') AS likes
             FROM listings l JOIN users o ON o.id = l.owner_id
+            WHERE 1=1$where
             ORDER BY l.created_at DESC");
 }
 $rows = $st->fetchAll();
@@ -57,6 +60,19 @@ page_top('Moderate listings', $u);
     <button class="btn btn-outline btn-sm">Search</button>
   </form>
 </section>
+
+<div class="chip-row">
+  <?php $counts = ['active'=>0,'hidden'=>0,'suspended'=>0];
+        foreach (db()->query("SELECT status, COUNT(*) c FROM listings GROUP BY status") as $r) $counts[$r['status']] = (int)$r['c'];
+        $total = array_sum($counts);
+        $base = $q !== '' ? '&q=' . urlencode($q) : '';
+        foreach (['all' => "All <span class=\"chip-n\">$total</span>",
+                  'active' => "Live <span class=\"chip-n\">{$counts['active']}</span>",
+                  'hidden' => "Hidden <span class=\"chip-n\">{$counts['hidden']}</span>",
+                  'suspended' => "Suspended <span class=\"chip-n\">{$counts['suspended']}</span>"] as $k => $label): ?>
+    <a class="chip <?= $f === $k ? 'on' : '' ?>" href="?f=<?= $k . $base ?>"><?= $label ?></a>
+  <?php endforeach; ?>
+</div>
 
 <section class="card table-card">
   <div class="table-scroll"><table>
@@ -82,7 +98,7 @@ page_top('Moderate listings', $u);
               <form method="post"><?= csrf_field() ?><input type="hidden" name="listing_id" value="<?= (int)$l['id'] ?>">
                 <button name="action" value="restore" class="btn btn-ghost btn-sm">Restore</button></form>
             <?php endif; ?>
-            <form method="post" onsubmit="return confirm('Delete this listing permanently?')">
+            <form method="post" data-confirm="Delete this listing permanently?">
               <?= csrf_field() ?><input type="hidden" name="listing_id" value="<?= (int)$l['id'] ?>">
               <button name="action" value="delete" class="btn btn-danger btn-sm">Delete</button>
             </form>

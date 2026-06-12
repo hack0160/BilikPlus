@@ -1,112 +1,185 @@
-/* BilikGo — swipe deck (tenant) */
+/* BilikGo v2 — toasts, sticker modals, swipe engine with match popup & undo */
 (function () {
-  const page = document.querySelector('.swipe-page');
+  'use strict';
+
+  /* ---------- toast lifetime (flash messages auto-dismiss) ---------- */
+  document.querySelectorAll('.flash').forEach(function (t) {
+    setTimeout(function () { t.classList.add('toast-out'); }, 3400);
+    setTimeout(function () { t.remove(); }, 3800);
+    t.addEventListener('click', function () { t.remove(); });
+  });
+
+  /* ---------- custom confirm modal (replaces browser confirm) ----------
+     Any form with data-confirm="message" gets a sticker-style dialog. */
+  var pendingForm = null;
+  function buildModal() {
+    var veil = document.createElement('div');
+    veil.className = 'modal-veil'; veil.hidden = true;
+    veil.innerHTML = '<div class="modal-box" role="dialog" aria-modal="true">'
+      + '<h3 id="mTitle">Just checking 👀</h3><p id="mMsg"></p>'
+      + '<div class="modal-actions">'
+      + '<button type="button" class="btn btn-ghost" id="mNo">Keep it</button>'
+      + '<button type="button" class="btn btn-primary" id="mYes">Yes, do it</button>'
+      + '</div></div>';
+    document.body.appendChild(veil);
+    veil.querySelector('#mNo').addEventListener('click', close);
+    veil.addEventListener('click', function (e) { if (e.target === veil) close(); });
+    veil.querySelector('#mYes').addEventListener('click', function () {
+      var f = pendingForm; close();
+      if (f) { f.dataset.ok = '1'; f.requestSubmit ? f.requestSubmit(f._btn || undefined) : f.submit(); }
+    });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+    function close() { veil.hidden = true; pendingForm = null; }
+    return veil;
+  }
+  var modal = null;
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (!f.dataset || !f.dataset.confirm || f.dataset.ok === '1') { if (f.dataset) delete f.dataset.ok; return; }
+    e.preventDefault();
+    modal = modal || buildModal();
+    pendingForm = f;
+    f._btn = e.submitter || null;
+    modal.querySelector('#mMsg').textContent = f.dataset.confirm;
+    modal.hidden = false;
+    modal.querySelector('#mYes').focus();
+  }, true);
+
+  /* ---------- swipe deck ---------- */
+  var page = document.querySelector('.swipe-page');
   if (!page) return;
 
-  const csrf = page.dataset.csrf;
-  const deck = document.getElementById('deck');
-  const emptyEl = document.getElementById('deckEmpty');
-  const actions = document.getElementById('swipeActions');
-  const likeCountEl = document.getElementById('likeCount');
-
-  const THRESHOLD = 90;          // px of drag needed to commit a swipe
-  let busy = false;
+  var csrf = page.dataset.csrf;
+  var deck = document.getElementById('deck');
+  var emptyEl = document.getElementById('deckEmpty');
+  var actions = document.getElementById('swipeActions');
+  var likeCountEl = document.getElementById('likeCount');
+  var btnUndo = document.getElementById('btnUndo');
+  var matchPop = document.getElementById('matchPop');
+  var THRESHOLD = 90;
+  var busy = false, lastSwipe = null; // {card, direction}
 
   function topCard() {
-    const cards = deck.querySelectorAll('.swipe-card:not(.gone)');
+    var cards = deck.querySelectorAll('.swipe-card:not(.gone)');
     return cards.length ? cards[cards.length - 1] : null;
   }
-
-  function sendSwipe(listingId, direction) {
-    fetch('api_swipe.php', {
+  function send(listingId, direction) {
+    return fetch('api_swipe.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ csrf: csrf, listing_id: listingId, direction: direction })
-    })
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        if (d && d.ok && likeCountEl) likeCountEl.textContent = d.likes;
-      })
-      .catch(function () { /* swipe is recorded again on next page view if it failed */ });
+    }).then(function (r) { return r.json(); })
+      .then(function (d) { if (d && d.ok && likeCountEl) likeCountEl.textContent = d.likes; return d; })
+      .catch(function () {});
   }
-
-  function flyOut(card, direction) {
-    if (busy) return;
-    busy = true;
-    const sign = direction === 'like' ? 1 : -1;
-    card.classList.remove('dragging');
-    card.style.transition = 'transform .35s ease, opacity .35s ease';
-    card.style.transform = 'translate(' + sign * (window.innerWidth * 0.9) + 'px, -40px) rotate(' + sign * 22 + 'deg)';
-    card.style.opacity = '0';
-    sendSwipe(parseInt(card.dataset.id, 10), direction);
-    setTimeout(function () {
-      card.classList.add('gone');
-      card.style.display = 'none';
-      busy = false;
-      if (!topCard()) {
-        emptyEl.hidden = false;
-        if (actions) actions.hidden = true;
-      }
-    }, 320);
+  function hearts(x, y) {
+    ['💚', '💛', '💚'].forEach(function (h, i) {
+      var s = document.createElement('span');
+      s.className = 'heart-float'; s.textContent = h;
+      s.style.left = (x + (i - 1) * 28) + 'px';
+      s.style.top = y + 'px';
+      s.style.animationDelay = (i * 80) + 'ms';
+      document.body.appendChild(s);
+      setTimeout(function () { s.remove(); }, 1300);
+    });
+  }
+  function showMatch(card) {
+    if (!matchPop) return;
+    matchPop.querySelector('#matchTitle').textContent = card.querySelector('h2').textContent;
+    matchPop.hidden = false;
+    clearTimeout(showMatch._t);
+    showMatch._t = setTimeout(hideMatch, 2200);
+  }
+  function hideMatch() { if (matchPop) matchPop.hidden = true; }
+  if (matchPop) {
+    matchPop.addEventListener('click', function (e) { if (e.target === matchPop) hideMatch(); });
+    var keep = document.getElementById('matchKeep');
+    if (keep) keep.addEventListener('click', hideMatch);
   }
 
   function setStamps(card, dx) {
-    const like = card.querySelector('.stamp-like');
-    const nope = card.querySelector('.stamp-nope');
-    const t = Math.min(Math.abs(dx) / THRESHOLD, 1);
-    if (like) like.style.opacity = dx > 0 ? t : 0;
-    if (nope) nope.style.opacity = dx < 0 ? t : 0;
+    var like = card.querySelector('.stamp-like'), nope = card.querySelector('.stamp-nope');
+    var t = Math.min(Math.abs(dx) / THRESHOLD, 1);
+    if (like) { like.style.opacity = dx > 0 ? t : 0; like.style.transform = 'rotate(-14deg) scale(' + (0.9 + t * 0.2) + ')'; }
+    if (nope) { nope.style.opacity = dx < 0 ? t : 0; nope.style.transform = 'rotate(14deg) scale(' + (0.9 + t * 0.2) + ')'; }
   }
+  function refreshUndo() { if (btnUndo) btnUndo.disabled = !lastSwipe; }
+  function deckEmptyCheck() {
+    if (!topCard()) { emptyEl.hidden = false; if (actions) actions.hidden = true; }
+    else { emptyEl.hidden = true; if (actions) actions.hidden = false; }
+  }
+  function flyOut(card, direction, ev) {
+    if (busy) return;
+    busy = true;
+    var sign = direction === 'like' ? 1 : -1;
+    card.classList.remove('dragging');
+    card.style.transition = 'transform .35s ease, opacity .35s ease';
+    card.style.transform = 'translate(' + sign * (window.innerWidth * 0.9) + 'px,-40px) rotate(' + sign * 22 + 'deg)';
+    card.style.opacity = '0';
+    send(parseInt(card.dataset.id, 10), direction);
+    if (direction === 'like') {
+      var r = card.getBoundingClientRect();
+      hearts(ev && ev.clientX ? ev.clientX : r.left + r.width / 2, ev && ev.clientY ? ev.clientY : r.top + r.height / 2);
+      showMatch(card);
+    }
+    lastSwipe = { card: card, direction: direction };
+    setTimeout(function () {
+      card.classList.add('gone');
+      busy = false;
+      refreshUndo();
+      deckEmptyCheck();
+    }, 320);
+  }
+  function undo() {
+    if (!lastSwipe || busy) return;
+    var card = lastSwipe.card;
+    lastSwipe = null;
+    hideMatch();
+    send(parseInt(card.dataset.id, 10), 'undo');
+    card.classList.remove('gone');
+    card.style.opacity = '1';
+    card.style.transform = '';
+    setStamps(card, 0);
+    refreshUndo();
+    deckEmptyCheck();
+  }
+  if (btnUndo) { btnUndo.addEventListener('click', undo); refreshUndo(); }
 
-  /* drag with pointer events */
-  let drag = null;
+  var drag = null;
   deck.addEventListener('pointerdown', function (e) {
-    if (e.target.closest('a, button')) return; // let links work
-    const card = topCard();
+    if (e.target.closest('a, button')) return;
+    var card = topCard();
     if (!card || busy || !card.contains(e.target)) return;
     drag = { card: card, startX: e.clientX, startY: e.clientY, dx: 0 };
     card.classList.add('dragging');
-    card.setPointerCapture && deck.setPointerCapture(e.pointerId);
+    deck.setPointerCapture(e.pointerId);
   });
-
   deck.addEventListener('pointermove', function (e) {
     if (!drag) return;
     drag.dx = e.clientX - drag.startX;
-    const dy = (e.clientY - drag.startY) * 0.25;
-    drag.card.style.transform =
-      'translate(' + drag.dx + 'px,' + dy + 'px) rotate(' + drag.dx / 16 + 'deg)';
+    var dy = (e.clientY - drag.startY) * 0.25;
+    drag.card.style.transform = 'translate(' + drag.dx + 'px,' + dy + 'px) rotate(' + drag.dx / 16 + 'deg)';
     setStamps(drag.card, drag.dx);
   });
-
-  function endDrag() {
+  function endDrag(e) {
     if (!drag) return;
-    const card = drag.card, dx = drag.dx;
+    var card = drag.card, dx = drag.dx;
     drag = null;
-    if (Math.abs(dx) > THRESHOLD) {
-      flyOut(card, dx > 0 ? 'like' : 'pass');
-    } else {
-      card.classList.remove('dragging');
-      card.style.transform = '';
-      setStamps(card, 0);
-    }
+    if (Math.abs(dx) > THRESHOLD) flyOut(card, dx > 0 ? 'like' : 'pass', e);
+    else { card.classList.remove('dragging'); card.style.transform = ''; setStamps(card, 0); }
   }
   deck.addEventListener('pointerup', endDrag);
   deck.addEventListener('pointercancel', endDrag);
 
-  /* buttons */
-  const btnLike = document.getElementById('btnLike');
-  const btnNope = document.getElementById('btnNope');
-  if (btnLike) btnLike.addEventListener('click', function () {
-    const c = topCard(); if (c) { setStamps(c, THRESHOLD); flyOut(c, 'like'); }
-  });
-  if (btnNope) btnNope.addEventListener('click', function () {
-    const c = topCard(); if (c) { setStamps(c, -THRESHOLD); flyOut(c, 'pass'); }
-  });
+  var btnLike = document.getElementById('btnLike');
+  var btnNope = document.getElementById('btnNope');
+  if (btnLike) btnLike.addEventListener('click', function (e) { var c = topCard(); if (c) { setStamps(c, THRESHOLD); flyOut(c, 'like', e); } });
+  if (btnNope) btnNope.addEventListener('click', function () { var c = topCard(); if (c) { setStamps(c, -THRESHOLD); flyOut(c, 'pass'); } });
 
-  /* keyboard */
   document.addEventListener('keydown', function (e) {
     if (e.target.matches('input, textarea, select')) return;
-    if (e.key === 'ArrowRight') { const c = topCard(); if (c) { setStamps(c, THRESHOLD); flyOut(c, 'like'); } }
-    if (e.key === 'ArrowLeft')  { const c = topCard(); if (c) { setStamps(c, -THRESHOLD); flyOut(c, 'pass'); } }
+    if (e.key === 'ArrowRight') { var c = topCard(); if (c) { setStamps(c, THRESHOLD); flyOut(c, 'like'); } }
+    if (e.key === 'ArrowLeft') { var c2 = topCard(); if (c2) { setStamps(c2, -THRESHOLD); flyOut(c2, 'pass'); } }
+    if (e.key.toLowerCase() === 'u') undo();
   });
 })();

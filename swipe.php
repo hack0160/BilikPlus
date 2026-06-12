@@ -20,7 +20,7 @@ page_top('Swipe rooms', $u);
 <section class="swipe-page" data-csrf="<?= e(csrf_token()) ?>">
   <div class="swipe-head">
     <h1>Find your bilik</h1>
-    <p class="muted">Drag right (or tap ✓) to shortlist · drag left (or tap ✕) to skip · arrow keys work too.</p>
+    <p class="muted">Swipe right kalau suka 💚 left kalau tak nak · buttons and arrow keys work too · U = undo.</p>
   </div>
 
   <div class="deck" id="deck">
@@ -57,9 +57,22 @@ page_top('Swipe rooms', $u);
   </div>
 
   <div class="swipe-actions" <?= $cards ? '' : 'hidden' ?> id="swipeActions">
+    <button class="fab fab-undo" id="btnUndo" aria-label="Undo last swipe" title="Undo (U)">↺</button>
     <button class="fab fab-nope" id="btnNope" aria-label="Skip this room">✕</button>
     <a class="fab fab-mid" href="shortlist.php" aria-label="Open shortlist">♥<span class="fab-count" id="likeCount"><?= $likeCount ?></span></a>
     <button class="fab fab-like" id="btnLike" aria-label="Shortlist this room">✓</button>
+  </div>
+
+  <div class="match-pop" id="matchPop" hidden>
+    <div class="match-card">
+      <span class="match-emoji">🎉</span>
+      <h2><span>Shortlisted!</span></h2>
+      <p id="matchTitle"></p>
+      <div class="match-actions">
+        <button class="btn btn-ghost btn-sm" id="matchKeep">Keep swiping</button>
+        <a class="btn btn-primary btn-sm" href="shortlist.php">See shortlist</a>
+      </div>
+    </div>
   </div>
 </section>
 <?php page_bottom();

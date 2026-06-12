@@ -10,12 +10,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'remov
     redirect('shortlist.php');
 }
 
+$sort = $_GET['sort'] ?? 'newest';
+$order = match ($sort) {
+    'cheap' => 'l.price ASC',
+    'pricey' => 'l.price DESC',
+    default => 's.created_at DESC',
+};
 $st = db()->prepare("SELECT l.*, o.name AS owner_name, o.phone AS owner_phone, o.email AS owner_email, s.created_at AS liked_at
                      FROM swipes s
                      JOIN listings l ON l.id = s.listing_id
                      JOIN users o ON o.id = l.owner_id
                      WHERE s.tenant_id = ? AND s.direction = 'like'
-                     ORDER BY s.created_at DESC");
+                     ORDER BY $order");
 $st->execute([$u['id']]);
 $rows = $st->fetchAll();
 
@@ -25,6 +31,14 @@ page_top('My shortlist', $u);
   <h1>My shortlist</h1>
   <p class="muted"><?= count($rows) ?> room<?= count($rows) === 1 ? '' : 's' ?> you've liked. Owner contacts are unlocked here.</p>
 </section>
+
+<?php if ($rows): ?>
+<div class="chip-row">
+  <?php foreach (['newest' => 'Newest liked', 'cheap' => 'Price: low → high', 'pricey' => 'Price: high → low'] as $k => $label): ?>
+    <a class="chip <?= $sort === $k ? 'on' : '' ?>" href="?sort=<?= $k ?>"><?= $label ?></a>
+  <?php endforeach; ?>
+</div>
+<?php endif; ?>
 
 <?php if (!$rows): ?>
   <div class="card empty-state">
@@ -47,7 +61,7 @@ page_top('My shortlist', $u);
             <?php if ($l['owner_phone']): ?> · <a href="tel:<?= e($l['owner_phone']) ?>"><?= e($l['owner_phone']) ?></a><?php endif; ?>
             · <a href="mailto:<?= e($l['owner_email']) ?>">email</a>
           </p>
-          <form method="post" class="inline-form" onsubmit="return confirm('Remove this room from your shortlist?')">
+          <form method="post" class="inline-form" data-confirm="Remove this room from your shortlist?">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="remove">
             <input type="hidden" name="listing_id" value="<?= (int)$l['id'] ?>">
