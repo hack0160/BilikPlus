@@ -46,6 +46,44 @@
   }, true);
 
 
+
+  /* ---------- listing-page carousel ---------- */
+  (function () {
+    var car = document.getElementById('carousel');
+    if (!car) return;
+    var imgs = car.querySelectorAll('.carousel-img');
+    if (imgs.length < 2) return;
+    var thumbs = car.querySelectorAll('.car-thumb');
+    var idxEl = document.getElementById('carIdx');
+    var idx = 0;
+    function show(n) {
+      idx = (n + imgs.length) % imgs.length;
+      imgs.forEach(function (im, i) { im.classList.toggle('on', i === idx); });
+      thumbs.forEach(function (th, i) { th.classList.toggle('on', i === idx); });
+      if (idxEl) idxEl.textContent = idx + 1;
+    }
+    car.querySelector('.car-prev').addEventListener('click', function () { show(idx - 1); });
+    car.querySelector('.car-next').addEventListener('click', function () { show(idx + 1); });
+    thumbs.forEach(function (th) {
+      th.addEventListener('click', function () { show(parseInt(th.dataset.idx, 10)); });
+    });
+    /* swipe gesture on the main image */
+    var sx = null;
+    var main = car.querySelector('.carousel-main');
+    main.addEventListener('pointerdown', function (e) { if (!e.target.closest('button')) sx = e.clientX; });
+    main.addEventListener('pointerup', function (e) {
+      if (sx === null) return;
+      var dx = e.clientX - sx; sx = null;
+      if (dx < -40) show(idx + 1);
+      else if (dx > 40) show(idx - 1);
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.target.matches('input, textarea, select')) return;
+      if (e.key === 'ArrowRight') show(idx + 1);
+      if (e.key === 'ArrowLeft') show(idx - 1);
+    });
+  })();
+
   /* ---------- photo galleries: tap right half = next, left half = prev ---------- */
   (function () {
     function setPhoto(g, idx) {
@@ -224,5 +262,27 @@
     if (e.key === 'ArrowRight') { var c = topCard(); if (c) { setStamps(c, THRESHOLD); flyOut(c, 'like'); } }
     if (e.key === 'ArrowLeft') { var c2 = topCard(); if (c2) { setStamps(c2, -THRESHOLD); flyOut(c2, 'pass'); } }
     if (e.key.toLowerCase() === 'u') undo();
+  });
+})();
+
+/* ---------- tripleline (hamburger) navigation ---------- */
+(function () {
+  var burger = document.querySelector('.navburger');
+  if (!burger) return;
+  burger.addEventListener('click', function () {
+    var open = document.body.classList.toggle('nav-open');
+    burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', function (e) {
+    if (document.body.classList.contains('nav-open') && !e.target.closest('.topbar')) {
+      document.body.classList.remove('nav-open');
+      burger.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && document.body.classList.contains('nav-open')) {
+      document.body.classList.remove('nav-open');
+      burger.setAttribute('aria-expanded', 'false');
+    }
   });
 })();

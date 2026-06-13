@@ -50,7 +50,7 @@ $counts = ['active'=>0,'hidden'=>0,'suspended'=>0];
 foreach ($cn->fetchAll() as $r) $counts[$r['status']] = (int)$r['c'];
 $total = array_sum($counts);
 
-page_top('My listings', $u);
+page_top('My listings', $u, ['noindex' => true]);
 ?>
 <section class="page-head split">
   <div>

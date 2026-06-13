@@ -25,7 +25,7 @@ $st = db()->prepare("SELECT l.*, o.name AS owner_name, o.phone AS owner_phone, o
 $st->execute([$u['id']]);
 $rows = $st->fetchAll();
 
-page_top('My shortlist', $u);
+page_top('My shortlist', $u, ['noindex' => true]);
 ?>
 <section class="page-head">
   <h1>My shortlist</h1>
@@ -50,12 +50,12 @@ page_top('My shortlist', $u);
   <div class="grid">
     <?php foreach ($rows as $l): ?>
       <article class="card listing-card <?= $l['status'] !== 'active' ? 'is-dimmed' : '' ?>">
-        <a class="listing-photo" href="listing.php?id=<?= (int)$l['id'] ?>" style="background-image:url('<?= listing_image($l) ?>')">
+        <a class="listing-photo" href="<?= e(listing_url($l)) ?>" style="background-image:url('<?= listing_image($l) ?>')">
           <span class="price-chip"><?= price_label($l) ?></span>
           <?php if ($l['status'] !== 'active'): ?><span class="status-chip">No longer available</span><?php endif; ?>
         </a>
         <div class="listing-body">
-          <h3><a href="listing.php?id=<?= (int)$l['id'] ?>"><?= e($l['title']) ?></a></h3>
+          <h3><a href="<?= e(listing_url($l)) ?>"><?= e($l['title']) ?></a></h3>
           <p class="muted">📍 <?= e($l['area']) ?>, <?= e($l['city']) ?> · <?= e($l['room_type']) ?></p>
           <p class="contact-line">👤 <?= e($l['owner_name']) ?>
             <?php if ($l['owner_phone']): ?> · <a href="tel:<?= e($l['owner_phone']) ?>"><?= e($l['owner_phone']) ?></a><?php endif; ?>
@@ -66,7 +66,7 @@ page_top('My shortlist', $u);
             <input type="hidden" name="action" value="remove">
             <input type="hidden" name="listing_id" value="<?= (int)$l['id'] ?>">
             <button class="btn btn-ghost btn-sm">Remove</button>
-            <a class="btn btn-outline btn-sm" href="listing.php?id=<?= (int)$l['id'] ?>">Details</a>
+            <a class="btn btn-outline btn-sm" href="<?= e(listing_url($l)) ?>">Details</a>
           </form>
         </div>
       </article>

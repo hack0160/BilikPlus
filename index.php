@@ -36,7 +36,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
         $pass  = $_POST['password'] ?? '';
         $pass2 = $_POST['password2'] ?? '';
         $err = '';
-        if ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) $err = 'Please fill in a valid name and email.';
+        if (($_POST['tos'] ?? '') !== '1') $err = 'You must read and agree to the Terms & Disclaimer to create an account.';
+        elseif ($name === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) $err = 'Please fill in a valid name and email.';
         elseif (strlen($pass) < 8)  $err = 'Password must be at least 8 characters.';
         elseif ($pass !== $pass2)   $err = 'Passwords do not match.';
         else {
@@ -49,8 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $action !== '') {
                    . '&name=' . urlencode($name) . '&email=' . urlencode($email)
                    . '&phone=' . urlencode($phone) . '&role=' . $role);
         }
-        db()->prepare("INSERT INTO users (name,email,phone,password_hash,role) VALUES (?,?,?,?,?)")
-           ->execute([$name, $email, $phone, password_hash($pass, PASSWORD_DEFAULT), $role]);
+        db()->prepare("INSERT INTO users (name,email,phone,password_hash,role,tos_accepted_at) VALUES (?,?,?,?,?,?)")
+           ->execute([$name, $email, $phone, password_hash($pass, PASSWORD_DEFAULT), $role, db_now()]);
         $_SESSION['uid'] = (int) db()->lastInsertId();
         session_regenerate_id(true);
         flash('Account created. Welcome to ' . APP_NAME . '!');
@@ -108,12 +109,29 @@ $f = [
     'sort' => in_array($_GET['sort'] ?? '', ['cheap', 'pricey', 'liked'], true) ? $_GET['sort'] : 'new',
 ];
 $roomTypes = ['Single Room', 'Medium Room', 'Master Room', 'Studio', 'Whole Unit'];
+$propTypes = ['Condominium', 'Apartment', 'Serviced Residence', 'Flat', 'Terrace House', 'Double Storey House'];
+$furnTypes = ['Fully furnished', 'Partially furnished', 'Unfurnished'];
+$f['prop']    = in_array($_GET['prop'] ?? '', $propTypes, true) ? $_GET['prop'] : '';
+$f['furn']    = in_array($_GET['furn'] ?? '', $furnTypes, true) ? $_GET['furn'] : '';
+$f['gender']  = in_array($_GET['gender'] ?? '', ['Any', 'Male', 'Female'], true) ? $_GET['gender'] : '';
+$f['tenure']  = max(0, min(60, (int) ($_GET['tenure'] ?? 0)));   // "I can commit up to X months"
+$f['amen']    = array_values(array_intersect((array) ($_GET['amen'] ?? []), amenity_options()));
+
 $where = "l.status = 'active' AND o.status = 'active' AND l.listing_type = ?";
 $args = [$f['type']];
 if ($f['q'] !== '')   { $where .= " AND (l.area LIKE ? OR l.title LIKE ? OR l.city LIKE ?)"; $like = '%' . $f['q'] . '%'; array_push($args, $like, $like, $like); }
 if ($f['min'] > 0)    { $where .= " AND l.price >= ?"; $args[] = $f['min']; }
 if ($f['max'] > 0)    { $where .= " AND l.price <= ?"; $args[] = $f['max']; }
 if (in_array($f['room'], $roomTypes, true)) { $where .= " AND l.room_type = ?"; $args[] = $f['room']; }
+if ($f['prop'] !== '')   { $where .= " AND l.property_type = ?"; $args[] = $f['prop']; }
+if ($f['furn'] !== '')   { $where .= " AND l.furnishing = ?"; $args[] = $f['furn']; }
+if ($f['gender'] !== '') { // 'Male' shows Male-only + Any; 'Any' shows open-to-anyone units
+    if ($f['gender'] === 'Any') { $where .= " AND l.gender_pref = 'Any'"; }
+    else { $where .= " AND l.gender_pref IN ('Any', ?)"; $args[] = $f['gender']; }
+}
+if ($f['tenure'] > 0) { $where .= " AND l.min_tenure <= ?"; $args[] = $f['tenure']; }
+foreach ($f['amen'] as $a) { $where .= " AND (',' || l.amenities || ',') LIKE ?"; $args[] = '%,' . $a . ',%'; }
+if (DB_DRIVER === 'mysql') { $where = str_replace("(',' || l.amenities || ',')", "CONCAT(',', l.amenities, ',')", $where); }
 $order = match ($f['sort']) {
     'cheap'  => 'l.price ASC',
     'pricey' => 'l.price DESC',
@@ -126,7 +144,18 @@ $st = db()->prepare("SELECT l.*,
         WHERE $where ORDER BY $order LIMIT 24");
 $st->execute($args);
 $results = $st->fetchAll();
-$searching = $f['q'] !== '' || $f['min'] || $f['max'] || $f['room'] !== '' || isset($_GET['type']);
+
+/* photos for quick-view popups, one query */
+$gridPhotos = [];
+if ($results) {
+    $ids = implode(',', array_map(fn($r) => (int) $r['id'], $results));
+    foreach (db()->query("SELECT id, listing_id FROM images WHERE listing_id IN ($ids) ORDER BY sort, id") as $r) {
+        $gridPhotos[(int) $r['listing_id']][] = 'image.php?id=' . (int) $r['id'];
+    }
+}
+$searching = $f['q'] !== '' || $f['min'] || $f['max'] || $f['room'] !== '' || $f['prop'] !== ''
+          || $f['furn'] !== '' || $f['gender'] !== '' || $f['tenure'] > 0 || $f['amen'] || isset($_GET['type']);
+$advancedOn = $f['prop'] !== '' || $f['furn'] !== '' || $f['gender'] !== '' || $f['tenure'] > 0 || (bool) $f['amen'];
 
 /* modal state passed back by auth endpoints on error/success */
 $m      = $_GET['m'] ?? '';
@@ -153,7 +182,27 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>BilikGo — your next bilik is one swipe away</title>
+<title>Rooms for Rent &amp; Property for Sale in Malaysia | BilikGo</title>
+<meta name="description" content="Search rooms for rent and homes for sale across Malaysia. Filter by price, area, room type, furnishing and amenities — see photos, maps and full move-in costs. Browse free, no sign-up needed.">
+<meta name="robots" content="index, follow">
+<link rel="canonical" href="<?= e(abs_url('index.php')) ?>">
+<meta property="og:site_name" content="BilikGo">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Rooms for Rent &amp; Property for Sale in Malaysia | BilikGo">
+<meta property="og:description" content="Search rooms and homes across Malaysia with photos, maps and transparent move-in costs.">
+<meta property="og:url" content="<?= e(abs_url('index.php')) ?>">
+<link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+<script type="application/ld+json"><?= json_encode([
+  '@context' => 'https://schema.org', '@type' => 'WebSite',
+  'name' => APP_NAME, 'url' => abs_url('index.php'),
+  'potentialAction' => ['@type' => 'SearchAction',
+    'target' => abs_url('index.php') . '?q={search_term_string}',
+    'query-input' => 'required name=search_term_string'],
+], JSON_UNESCAPED_SLASHES) ?></script>
+<script type="application/ld+json"><?= json_encode([
+  '@context' => 'https://schema.org', '@type' => 'Organization',
+  'name' => APP_NAME, 'url' => abs_url('index.php'),
+], JSON_UNESCAPED_SLASHES) ?></script>
 <meta name="description" content="Swipe through real rooms across the Klang Valley. Right to shortlist, left to skip. Owners list in minutes.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -166,10 +215,13 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
 
 <header class="lnav">
   <a class="lbrand" href="index.php"><span class="mark">⌂</span> Bilik<b>Go</b></a>
-  <nav>
-    <a href="#how">How it works</a>
-    <a href="#rooms">Rooms</a>
-    <a href="#roles">For owners</a>
+  <button class="navburger" type="button" aria-label="Menu" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
+  <nav class="lnav-links">
+    <a href="index.php?type=rent#results">Rent</a>
+    <a href="index.php?type=sale#results">Buy</a>
+    <a href="terms.php">Terms</a>
     <a class="lbtn lbtn-ghost" href="index.php?m=login" data-modal="login">Sign in</a>
     <a class="lbtn lbtn-hot" href="index.php?m=register" data-modal="register">Get started</a>
   </nav>
@@ -209,6 +261,47 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
         </select>
         <button class="lbtn lbtn-hot">Search</button>
       </div>
+      <details class="sp-more" <?= $advancedOn ? 'open' : '' ?>>
+        <summary>More filters<?= $advancedOn ? ' · active' : '' ?></summary>
+        <div class="sp-more-grid">
+          <label>Property type
+            <select name="prop">
+              <option value="">Any property</option>
+              <?php foreach ($propTypes as $t): ?><option <?= $f['prop'] === $t ? 'selected' : '' ?>><?= e($t) ?></option><?php endforeach; ?>
+            </select>
+          </label>
+          <label>Furnishing
+            <select name="furn">
+              <option value="">Any furnishing</option>
+              <?php foreach ($furnTypes as $t): ?><option <?= $f['furn'] === $t ? 'selected' : '' ?>><?= e($t) ?></option><?php endforeach; ?>
+            </select>
+          </label>
+          <label>I am / we are
+            <select name="gender">
+              <option value="">No preference</option>
+              <option value="Male"   <?= $f['gender'] === 'Male' ? 'selected' : '' ?>>Male (incl. open units)</option>
+              <option value="Female" <?= $f['gender'] === 'Female' ? 'selected' : '' ?>>Female (incl. open units)</option>
+              <option value="Any"    <?= $f['gender'] === 'Any' ? 'selected' : '' ?>>Open-to-anyone units only</option>
+            </select>
+          </label>
+          <label>Max commitment
+            <select name="tenure">
+              <option value="0">Any minimum stay</option>
+              <?php foreach ([1 => 'Up to 1 month', 3 => 'Up to 3 months', 6 => 'Up to 6 months', 12 => 'Up to 12 months'] as $v => $lab): ?>
+                <option value="<?= $v ?>" <?= $f['tenure'] === $v ? 'selected' : '' ?>><?= $lab ?></option>
+              <?php endforeach; ?>
+            </select>
+          </label>
+        </div>
+        <div class="sp-amen">
+          <?php foreach (amenity_options() as $a): ?>
+            <label class="sp-amen-opt">
+              <input type="checkbox" name="amen[]" value="<?= e($a) ?>" <?= in_array($a, $f['amen'], true) ? 'checked' : '' ?>>
+              <span><?= e($a) ?></span>
+            </label>
+          <?php endforeach; ?>
+        </div>
+      </details>
     </form>
     <p class="hero-sub">Browse free, no account needed. <button class="linkish" data-modal="register">Tenants who sign up</button> get the swipe deck too.</p>
   </section>
@@ -227,7 +320,19 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
     <?php else: ?>
     <div class="unit-grid">
       <?php foreach ($results as $i => $l): ?>
-      <a class="room rv in" href="listing.php?id=<?= (int)$l['id'] ?>">
+      <?php
+        $qv = [
+            'url' => listing_url($l), 'title' => $l['title'],
+            'price' => price_label($l, false), 'sale' => $l['listing_type'] === 'sale',
+            'area' => $l['area'] . ', ' . $l['city'], 'room' => $l['room_type'],
+            'prop' => $l['property_type'], 'furn' => $l['furnishing'],
+            'tenure' => (int) $l['min_tenure'],
+            'movein' => $l['listing_type'] === 'rent' ? 'RM ' . number_format(movein_costs($l)['total']) : '',
+            'amen' => array_slice(array_filter(array_map('trim', explode(',', $l['amenities']))), 0, 6),
+            'photos' => $gridPhotos[(int) $l['id']] ?? [html_entity_decode(listing_image($l))],
+        ];
+      ?>
+      <a class="room rv in" href="<?= e(listing_url($l)) ?>" data-qv='<?= e(json_encode($qv, JSON_UNESCAPED_SLASHES)) ?>'>
         <div class="r-photo" style="background-image:url('<?= listing_image($l) ?>')">
           <span class="r-price"><?= price_label($l) ?></span>
           <?php if ($l['listing_type'] === 'sale'): ?><span class="r-type">FOR SALE</span><?php endif; ?>
@@ -240,6 +345,17 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
       <?php endforeach; ?>
     </div>
     <?php endif; ?>
+    <?php if ($areas): ?>
+    <nav class="area-links" aria-label="Popular areas">
+      <h2>Popular areas</h2>
+      <p>
+        <?php foreach (array_slice($areas, 0, 10) as $a): ?>
+          <a href="index.php?type=rent&amp;q=<?= e(urlencode($a)) ?>#results">Rooms for rent in <?= e($a) ?></a>
+        <?php endforeach; ?>
+        <a href="index.php?type=sale#results">Property for sale in Malaysia</a>
+      </p>
+    </nav>
+    <?php endif; ?>
     <p class="results-foot">
       <button class="linkish" data-modal="register">List your unit free</button> ·
       <button class="linkish" data-modal="login">Sign in</button> — needed only to contact owners or swipe.
@@ -248,10 +364,38 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
 </main>
 
 <footer class="lfoot">
-  <span>BilikGo — find your bilik, swipe by swipe.</span>
+  <span>BilikGo — rooms and homes, made simple. <a href="terms.php">Terms &amp; Disclaimer</a></span>
   <span>Klang Valley, Malaysia</span>
 </footer>
 
+
+<!-- ============================ QUICK VIEW ============================ -->
+<div class="lmodal" id="lm-qv" hidden>
+  <div class="lmodal-card qv-card" role="dialog" aria-modal="true">
+    <button class="lmodal-close" type="button" data-close aria-label="Close">✕</button>
+    <div class="qv-photo gallery" id="qvPhoto">
+      <div class="seg-row" id="qvSegs"></div>
+      <span class="g-zone g-prev"></span><span class="g-zone g-next"></span>
+      <span class="r-price" id="qvPrice"></span>
+      <span class="r-type" id="qvType" hidden>FOR SALE</span>
+    </div>
+    <h2 id="qvTitle"></h2>
+    <p class="qv-loc" id="qvLoc"></p>
+    <div class="qv-facts" id="qvFacts"></div>
+    <div class="qv-amen" id="qvAmen"></div>
+    <div class="qv-actions">
+      <a class="lbtn lbtn-hot" id="qvOpen" href="#">See full details, map &amp; costs</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============================ TERMS MODAL ============================ -->
+<div class="lmodal" id="lm-terms" hidden>
+  <div class="lmodal-card terms-modal" role="dialog" aria-modal="true" aria-label="Terms and Disclaimer">
+    <button class="lmodal-close" type="button" data-close aria-label="Close">✕</button>
+    <iframe src="about:blank" data-src="terms.php" title="Terms of Use and Disclaimer"></iframe>
+  </div>
+</div>
 
 <!-- ============================ AUTH MODALS ============================ -->
 <div class="lmodal" id="lm-login" <?= $m === 'login' ? '' : 'hidden' ?>>
@@ -272,6 +416,14 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
     <div class="lmodal-links">
       <button type="button" data-swap="forgot">Forgot password?</button>
       <span>New here? <button type="button" data-swap="register">Create an account</button></span>
+    </div>
+    <div class="demo-creds-box">
+      <p>Demo accounts — tap to fill, password is <code>Demo@123</code>:</p>
+      <div class="demo-cred-row">
+        <button type="button" class="demo-cred" data-email="tenant@bilikgo.test">👤 Tenant<small>tenant@bilikgo.test</small></button>
+        <button type="button" class="demo-cred" data-email="owner@bilikgo.test">🏠 Owner<small>owner@bilikgo.test</small></button>
+        <button type="button" class="demo-cred" data-email="admin@bilikgo.test">🛡 Admin<small>admin@bilikgo.test</small></button>
+      </div>
     </div>
   </div>
 </div>
@@ -296,6 +448,10 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
       <label>Phone / WhatsApp <span class="opt">(optional)</span> <input type="tel" name="phone" placeholder="012-3456789" value="<?= $m === 'register' ? e($pre['phone']) : '' ?>"></label>
       <label>Password <span class="opt">(min 8 characters)</span> <input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
       <label>Confirm password <input type="password" name="password2" required minlength="8" autocomplete="new-password"></label>
+      <label class="tos-check">
+        <input type="checkbox" name="tos" value="1" required>
+        <span>I have read and agree to the <a href="terms.php" target="_blank">Terms of Use &amp; Disclaimer</a>, and I confirm any content I post (including photos) is mine to publish.</span>
+      </label>
       <button class="lbtn lbtn-hot lbtn-block">Create account</button>
     </form>
     <div class="lmodal-links">
@@ -373,6 +529,77 @@ if (!$areas) $areas = ['Cheras', 'Bangsar South', 'Subang Jaya', 'Mont Kiara', '
     if (e.target.classList && e.target.classList.contains('lmodal')) closeAll();
   });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeAll(); });
+  // quick view: tap a unit card -> popup; direct URL stays for new-tab/SEO
+  var qvIdx = 0, qvPhotos = [];
+  function qvShow(n) {
+    qvIdx = (n + qvPhotos.length) % qvPhotos.length;
+    var ph = document.getElementById('qvPhoto');
+    ph.style.backgroundImage = "url('" + qvPhotos[qvIdx] + "')";
+    document.querySelectorAll('#qvSegs .seg').forEach(function (sg, i) { sg.classList.toggle('on', i === qvIdx); });
+  }
+  document.addEventListener('click', function (e) {
+    var card = e.target.closest('.room[data-qv]');
+    if (!card || e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1) return;
+    e.preventDefault();
+    var d = JSON.parse(card.dataset.qv);
+    qvPhotos = d.photos; qvIdx = 0;
+    document.getElementById('qvTitle').textContent = d.title;
+    document.getElementById('qvLoc').textContent = '📍 ' + d.area;
+    document.getElementById('qvPrice').textContent = d.price;
+    document.getElementById('qvType').hidden = !d.sale;
+    document.getElementById('qvOpen').href = d.url;
+    var facts = [d.room, d.prop, d.furn];
+    if (!d.sale && d.tenure > 0) facts.push('Min ' + d.tenure + ' mo');
+    if (d.movein) facts.push('Move-in ' + d.movein);
+    document.getElementById('qvFacts').innerHTML = facts.filter(Boolean)
+      .map(function (f) { return '<span>' + f + '</span>'; }).join('');
+    document.getElementById('qvAmen').textContent = d.amen.length ? d.amen.join(' · ') : '';
+    var segs = document.getElementById('qvSegs');
+    segs.innerHTML = ''; segs.hidden = d.photos.length < 2;
+    d.photos.forEach(function (_, i) {
+      var sp = document.createElement('span'); sp.className = 'seg' + (i === 0 ? ' on' : ''); segs.appendChild(sp);
+    });
+    qvShow(0);
+    open('qv');
+  });
+  document.addEventListener('click', function (e) {
+    var z = e.target.closest('#qvPhoto .g-zone');
+    if (!z) return;
+    qvShow(qvIdx + (z.classList.contains('g-next') ? 1 : -1));
+  });
+  // terms links on the landing open as a popup (page still exists for SEO/direct visits)
+  document.addEventListener('click', function (e) {
+    var t = e.target.closest('a[href^="terms.php"]');
+    if (!t || e.ctrlKey || e.metaKey) return;
+    e.preventDefault();
+    var m = document.getElementById('lm-terms');
+    var fr = m.querySelector('iframe');
+    if (fr.src === 'about:blank' || fr.src === '') fr.src = fr.dataset.src;
+    else if (!fr.src.includes('terms.php')) fr.src = fr.dataset.src;
+    open('terms');
+  });
+  // tripleline menu toggle
+  var burger = document.querySelector('.navburger');
+  if (burger) burger.addEventListener('click', function () {
+    var open = document.body.classList.toggle('nav-open');
+    burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  document.addEventListener('click', function (e) {
+    if (document.body.classList.contains('nav-open')
+        && !e.target.closest('.lnav') && !e.target.closest('.topbar')) {
+      document.body.classList.remove('nav-open');
+      if (burger) burger.setAttribute('aria-expanded', 'false');
+    }
+  });
+  // demo accounts: tap to fill the login form
+  document.addEventListener('click', function (e) {
+    var d = e.target.closest('.demo-cred');
+    if (!d) return;
+    var modal = document.getElementById('lm-login');
+    modal.querySelector('input[name=email]').value = d.dataset.email;
+    modal.querySelector('input[name=password]').value = 'Demo@123';
+    modal.querySelector('input[name=password]').focus();
+  });
   // auto-open if the server bounced us back with state
   var visible = document.querySelector('.lmodal:not([hidden])');
   if (visible) { document.body.style.overflow = 'hidden'; var f = visible.querySelector('.lmodal-err, .lmodal-ok'); if (f) f.scrollIntoView({ block: 'center' }); }

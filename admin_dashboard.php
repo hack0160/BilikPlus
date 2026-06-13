@@ -2,6 +2,15 @@
 require __DIR__ . '/config.php';
 $u = require_role('admin');
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'moderation') {
+    csrf_check();
+    $t = max(1, min(50, (int) ($_POST['report_threshold'] ?? 3)));
+    setting_set('report_threshold', (string) $t);
+    flash("Saved — listings now auto-suspend at $t report" . ($t > 1 ? 's' : '') . '.');
+    redirect('admin_dashboard.php');
+}
+$openReports = (int) db()->query("SELECT COUNT(DISTINCT listing_id) FROM reports")->fetchColumn();
+
 $s = db()->query("SELECT
     (SELECT COUNT(*) FROM users) AS users,
     (SELECT COUNT(*) FROM users WHERE role = 'owner') AS owners,
@@ -17,7 +26,7 @@ $recent = db()->query("SELECT l.id, l.title, l.area, l.price, l.status, l.create
                        FROM listings l JOIN users o ON o.id = l.owner_id
                        ORDER BY l.created_at DESC LIMIT 6")->fetchAll();
 
-page_top('Admin dashboard', $u);
+page_top('Admin dashboard', $u, ['noindex' => true]);
 ?>
 <section class="page-head">
   <h1>Site overview</h1>
@@ -30,6 +39,22 @@ page_top('Admin dashboard', $u);
   <div class="stat"><strong><?= (int)$s['swipes'] ?></strong><span>Swipes · <?= (int)$s['likes'] ?> likes ♥</span></div>
   <div class="stat"><strong><?= (int)$s['suspended_users'] + (int)$s['suspended_listings'] ?></strong><span>Suspensions in force</span></div>
 </div>
+
+<section class="card table-card mod-settings">
+  <div class="table-head">
+    <h2>Moderation</h2>
+    <a class="btn btn-outline btn-sm" href="admin_listings.php">Review reported listings<?= $openReports ? " ($openReports)" : '' ?></a>
+  </div>
+  <form method="post" class="mod-form">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="moderation">
+    <label for="thresh">Auto-suspend a listing after</label>
+    <input id="thresh" type="number" name="report_threshold" min="1" max="50" value="<?= report_threshold() ?>">
+    <span>report<?= report_threshold() > 1 ? 's' : '' ?> from different users</span>
+    <button class="btn btn-primary btn-sm">Save</button>
+  </form>
+  <p class="muted small">Suspended listings disappear from search and the swipe deck until you restore them. Restoring a listing clears its reports.</p>
+</section>
 
 <section class="card table-card">
   <div class="table-head">

@@ -22,7 +22,7 @@ $top = db()->prepare("SELECT l.id, l.title, l.area, l.price, l.status,
 $top->execute([$u['id']]);
 $topRows = $top->fetchAll();
 
-page_top('Owner dashboard', $u);
+page_top('Owner dashboard', $u, ['noindex' => true]);
 ?>
 <section class="page-head">
   <h1>Hello, <?= e($u['name']) ?> 👋</h1>

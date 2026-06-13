@@ -1,0 +1,14 @@
+# BilikGo robots.txt
+# NOTE: robots.txt only works from the DOMAIN ROOT. If BilikGo lives in a
+# subfolder (e.g. /bilikgo/), copy this file to your htdocs root and adjust
+# the Sitemap line to the full URL of sitemap.php.
+User-agent: *
+Allow: /
+Disallow: /owner_
+Disallow: /admin_
+Disallow: /swipe.php
+Disallow: /shortlist.php
+Disallow: /setup.php
+Disallow: /logout.php
+
+Sitemap: https://YOUR-DOMAIN/sitemap.php

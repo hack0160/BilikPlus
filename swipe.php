@@ -24,12 +24,12 @@ $likes = db()->prepare("SELECT COUNT(*) c FROM swipes WHERE tenant_id = ? AND di
 $likes->execute([$u['id']]);
 $likeCount = (int) $likes->fetch()['c'];
 
-page_top('Swipe rooms', $u);
+page_top('Swipe rooms', $u, ['noindex' => true]);
 ?>
 <section class="swipe-page" data-csrf="<?= e(csrf_token()) ?>">
   <div class="swipe-head">
-    <h1>Find your bilik</h1>
-    <p class="muted">Swipe right kalau suka 💚 left kalau tak nak · buttons and arrow keys work too · U = undo.</p>
+    <h1>Find your next room</h1>
+    <p class="muted">Swipe right to shortlist, left to skip · buttons and arrow keys work too · U = undo.</p>
   </div>
 
   <div class="deck" id="deck">
@@ -46,8 +46,8 @@ page_top('Swipe rooms', $u);
           <span class="g-zone g-next" aria-hidden="true"></span>
           <?php endif; ?>
           <span class="price-chip"><?= price_label($l) ?></span>
-          <span class="stamp stamp-like">SUKA ✓</span>
-          <span class="stamp stamp-nope">TAK NAK ✕</span>
+          <span class="stamp stamp-like">LIKE ✓</span>
+          <span class="stamp stamp-nope">PASS ✕</span>
         </div>
         <div class="swipe-body">
           <h2><?= e($l['title']) ?></h2>
@@ -63,7 +63,7 @@ page_top('Swipe rooms', $u);
               <span>· <?= e($a) ?></span>
             <?php endforeach; ?>
           </p>
-          <a class="detail-link" href="listing.php?id=<?= (int)$l['id'] ?>">View full details →</a>
+          <a class="detail-link" href="<?= e(listing_url($l)) ?>">View full details →</a>
         </div>
       </article>
     <?php endforeach; ?>

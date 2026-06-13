@@ -1,0 +1,13 @@
+# BilikGo — friendly listing URLs + basics
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+RewriteEngine On
+# /room/123-cozy-room-in-cheras  ->  listing.php?id=123
+RewriteRule ^room/(\d+)(?:-[a-z0-9-]*)?/?$ listing.php?id=$1 [L,QSA]
+</IfModule>
+
+# never serve the SQLite database or raw SQL
+<FilesMatch "\.(sqlite|sql)$">
+  Require all denied
+</FilesMatch>

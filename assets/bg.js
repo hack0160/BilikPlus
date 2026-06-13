@@ -7,7 +7,7 @@
   if (!host) return;
 
   var scene = new THREE.Scene();
-  scene.fog = new THREE.FogExp2(0x120d1d, 0.06);
+  scene.fog = new THREE.FogExp2(0xfaf7f2, 0.06);
   var camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 80);
   camera.position.set(0, 0.4, 9);
   var renderer;
@@ -26,7 +26,7 @@
     return new THREE.CanvasTexture(c);
   }
   var layers = [];
-  [['#ff3d5e', 130, 0.14], ['#00e5a0', 100, 0.11], ['#ffb23e', 70, 0.09]].forEach(function (cfg, li) {
+  [['#1e6e5c', 90, 0.11], ['#b97e2f', 60, 0.09], ['#a59c91', 50, 0.08]].forEach(function (cfg, li) {
     var count = cfg[1];
     var geo = new THREE.BufferGeometry();
     var pos = new Float32Array(count * 3), seed = new Float32Array(count);
@@ -38,8 +38,8 @@
     }
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     var pts = new THREE.Points(geo, new THREE.PointsMaterial({
-      size: cfg[2], map: glow(cfg[0]), transparent: true, opacity: 0.55,
-      depthWrite: false, blending: THREE.AdditiveBlending
+      size: cfg[2], map: glow(cfg[0]), transparent: true, opacity: 0.28,
+      depthWrite: false, blending: THREE.NormalBlending
     }));
     pts.userData = { seed: seed, speed: 0.14 + li * 0.05, base: pos.slice() };
     scene.add(pts); layers.push(pts);

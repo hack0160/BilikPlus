@@ -63,7 +63,7 @@ foreach (db()->query("SELECT role, status, COUNT(*) c FROM users GROUP BY role, 
     if ($r['status'] === 'suspended') $counts['suspended'] += (int)$r['c'];
 }
 
-page_top('Manage users', $u);
+page_top('Manage users', $u, ['noindex' => true]);
 ?>
 <section class="page-head split">
   <div>

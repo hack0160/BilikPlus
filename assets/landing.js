@@ -12,7 +12,7 @@
     if (!host) return;
 
     var scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x120d1d, 0.055);
+    scene.fog = new THREE.FogExp2(0xfaf7f2, 0.055);
     var camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 100);
     camera.position.set(0, 0.6, 9);
 
@@ -35,9 +35,9 @@
 
     // three drifting "firefly" layers — kampung lights at night
     var layers = [];
-    [['#ff3d5e', 320, 0.16, 0.9],
-     ['#00e5a0', 260, 0.12, 0.65],
-     ['#ffb23e', 200, 0.10, 0.5]].forEach(function (cfg, li) {
+    [['#1e6e5c', 200, 0.13, 0.9],
+     ['#b97e2f', 140, 0.10, 0.65],
+     ['#a59c91', 120, 0.09, 0.5]].forEach(function (cfg, li) {
       var color = cfg[0], count = cfg[1], size = cfg[2], spread = cfg[3];
       var geo = new THREE.BufferGeometry();
       var pos = new Float32Array(count * 3);
@@ -50,8 +50,8 @@
       }
       geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       var mat = new THREE.PointsMaterial({
-        size: size, map: glowTexture(color), transparent: true, opacity: 0.85,
-        depthWrite: false, blending: THREE.AdditiveBlending
+        size: size, map: glowTexture(color), transparent: true, opacity: 0.35,
+        depthWrite: false, blending: THREE.NormalBlending
       });
       var pts = new THREE.Points(geo, mat);
       pts.userData = { seed: seed, speed: 0.18 + li * 0.07, base: pos.slice() };
@@ -60,10 +60,10 @@
     });
 
     // distant "city grid" — faint wireframe plane sliding below
-    var grid = new THREE.GridHelper(60, 60, 0x3a2a5e, 0x241a3d);
+    var grid = new THREE.GridHelper(60, 60, 0xe3dccf, 0xefe9df);
     grid.position.y = -4.2;
     grid.material.transparent = true;
-    grid.material.opacity = 0.35;
+    grid.material.opacity = 0.5;
     scene.add(grid);
 
     var mouseX = 0, mouseY = 0, scrollY = 0;
